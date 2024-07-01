@@ -1,0 +1,567 @@
+---
+title: "Untitled"
+author: "kim soyeon"
+date: "2023-04-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(phyloseq)
+library(vegan)
+library(tidyverse)
+library(BiocManager)
+# BiocManager::install("microbiome")
+# library(microbiome)
+ps <- readRDS("./ps.rds") ###################################################
+
+microbiome::summarize_phyloseq(ps)
+# [[1]]
+# [1] "1] Min. number of reads = 897"
+# 
+# [[2]]
+# [1] "2] Max. number of reads = 9820"
+# 
+# [[3]]
+# [1] "3] Total number of reads = 153807"
+# 
+# [[4]]
+# [1] "4] Average number of reads = 4523.73529411765"
+# 
+# [[5]]
+# [1] "5] Median number of reads = 4010.5"
+# 
+# [[6]]
+# [1] "7] Sparsity = 0.911115355233002"
+# 
+# [[7]]
+# [1] "6] Any OTU sum to 1 or less? NO"
+# 
+# [[8]]
+# [1] "8] Number of singletons = 0"
+# 
+# [[9]]
+# [1] "9] Percent of OTUs that are singletons \n        (i.e. exactly one read detected across all samples)0"
+# 
+# [[10]]
+# [1] "10] Number of sample variables are: 8"
+# 
+# [[11]]
+# [1] "barcode.sequence"            "body.site"                   "year"                        "month"                       "day"                         "subject"                    
+# [7] "reported.antibiotic.usage"   "days.since.experiment.start"
+
+ps.rel <- transform_sample_counts(ps, function(x) x/sum(x) )
+
+
+
+# List of Genera in the Bacteroideted Phylum
+head(microbiome::map_levels(NULL, "Phylum", "Genus", ps)$Bacteroidetes)
+
+get_taxa_unique(ps, "Phylum")
+#  [1] "Unclassified Bacteria"   "Unclassified Unassigned" "Crenarchaeota"           "Cyanobacteria"           "Tenericutes"             "[Thermi]"                "SR1"                    
+#  [8] "Firmicutes"              "GN02"                    "Fusobacteria"            "Actinobacteria"          "Proteobacteria"          "Spirochaetes"            "FBP"                    
+# [15] "Synergistetes"           "Chloroflexi"             "Verrucomicrobia"         "Acidobacteria"           "Planctomycetes"          "TM7"                     "Bacteroidetes"      
+
+
+
+library(knitr)
+ps2 <- microbiome::add_refseq(ps, tag = "ASV")
+
+
+```
+
+```{r}
+library(ggpubr) 
+library(ggrepel) 
+cor_plot <- function(df, x = x, y = y,  Ylab = NULL, Xlab = NULL, Title = NULL, SampleID = "SampleID", shape = shape, color = color, cols = cols, label.y = 3 , label.x = 1) {
+
+  
+  p <- ggplot(df, aes_string(x, y, label = SampleID)) +
+    geom_point(aes_string(shape = shape, color = color), size = 3) +
+    stat_smooth(color = "blue", method = "lm") + 
+    ggpubr::stat_cor(method = "spearman", label.x = label.x, label.y = label.y, color = "red") + 
+    theme_test() +
+    labs(title = Title, y = Ylab, x = Xlab)
+  p
+  return(p)
+}
+
+tax <- data.frame(tax_table(ps.rel))
+
+tax[tax$Genus == "Lachnospira", ] 
+                  
+ps.rel.f <- tax_glom(ps.rel, "Family")
+Table <- merge(data.frame(tax_table(ps.rel.f)), data.frame(otu_table(ps.rel.f)), by = "row.names")
+Table2 <- Table[, c(6, 9:42)] %>% column_to_rownames("Family") %>% t()
+
+Table3 <- merge(sample_data(ps.rel.f)[,c("body.site", "days.since.experiment.start"), drop = F], 
+                 Table2[, "Lachnospiraceae", drop=F], by = "row.names")
+
+gut <- Table3[Table3$body.site %in% c("gut"), ]
+
+
+cor_plot(df = gut, 
+         x = "days.since.experiment.start",
+         y =  "Lachnospiraceae",
+         SampleID = "Row.names" , Ylab = "Lachnospiraceae", Xlab = "Day",
+         shape = NULL, color = NULL, cols = NULL, label.y = 0.5) + 
+  geom_text_repel(size = 3)
+Lachnospira
+
+```
+
+```{r}
+OTU <- otu_table(ps)
+TAX <- tax_table(ps)
+META <- sample_data(ps)
+PHYLO  <- phyloseq::phy_tree(ps)
+
+```
+
+```{r}
+OTU %>% typeof()
+TAX%>% typeof()
+META%>% typeof()
+PHYLO%>% typeof()
+```
+### OTU 
+```{r}
+head
+OTU[1:5, 1:5]
+# OTU Table:          [5 taxa and 5 samples]
+#                      taxa are rows
+#                                  L1S105 L1S140 L1S208 L1S257 L1S281
+# 35bfc371d940cffdc527b7b4dc954456      0      0      0      0      0
+# a95851baf426c85eae4419617db902a7      0      0      0      0      0
+# 08bd73939f7bfd85daf2eaee7e9c9bf8      0      0      0      0      0
+# a9e0ac523112f40942da575caf1f386e      0      0      0      0      0
+# 033511c7ff4fe93866075cfb9129aa3b      0      0      0      0      0
+
+typeof(OTU)
+dim(OTU)
+nrow(OTU) 
+ncol(OTU)
+
+OTU.2 <- OTU %>% as.data.frame() %>% 
+  mutate(OTU_sum = rowSums(.))
+OTU.2$OTU_sum
+
+OTU.2 %>% arrange(-OTU_sum)
+```
+
+```{r}
+
+OTU.t <- OTU %>% t() %>% as.data.frame()%>%
+  mutate(Sam_depth = rowSums(.)) %>% 
+  arrange(-Sam_depth)
+
+OTU.t$Sam_depth %>% summary()
+```
+### TAX
+```{r}
+TAX[1:5, ]
+
+# Taxonomy Table:     [5 taxa by 7 taxonomic ranks]:
+#                                  Kingdom      Phylum                    Class                     Order                     Family                    Genus                       Species                                  
+# 35bfc371d940cffdc527b7b4dc954456 "Bacteria"   "Unclassified Bacteria"   "Unclassified Bacteria"   "Unclassified Bacteria"   "Unclassified Bacteria"   "Unclassified Bacteria"     "Unclassified Bacteria"                  
+# a95851baf426c85eae4419617db902a7 "Unassigned" "Unclassified Unassigned" "Unclassified Unassigned" "Unclassified Unassigned" "Unclassified Unassigned" "Unclassified Unassigned"   "Unclassified Unassigned"                
+# 08bd73939f7bfd85daf2eaee7e9c9bf8 "Bacteria"   "Unclassified Bacteria"   "Unclassified Bacteria"   "Unclassified Bacteria"   "Unclassified Bacteria"   "Unclassified Bacteria"     "Unclassified Bacteria"                  
+# a9e0ac523112f40942da575caf1f386e "Archaea"    "Crenarchaeota"           "Thaumarchaeota"          "Nitrososphaerales"       "Nitrososphaeraceae"      "Candidatus Nitrososphaera" "Unclassified  Candidatus Nitrososphaera"
+# 033511c7ff4fe93866075cfb9129aa3b "Archaea"    "Crenarchaeota"           "Thaumarchaeota"          "Nitrososphaerales"       "Nitrososphaeraceae"      "Candidatus Nitrososphaera" "Candidatus Nitrososphaera SCA1145"      
+dim(TAX)
+colnames(TAX)
+TAX[,1] %>% unique
+# Taxonomy Table:     [3 taxa by 1 taxonomic ranks]:
+#                                  Kingdom     
+# 35bfc371d940cffdc527b7b4dc954456 "Bacteria"  
+# a95851baf426c85eae4419617db902a7 "Unassigned"
+# a9e0ac523112f40942da575caf1f386e "Archaea"   
+
+
+TAX[,2] %>% unique
+# Taxonomy Table:     [21 taxa by 1 taxonomic ranks]:
+#                                  Phylum                   
+# 35bfc371d940cffdc527b7b4dc954456 "Unclassified Bacteria"  
+# a95851baf426c85eae4419617db902a7 "Unclassified Unassigned"
+# a9e0ac523112f40942da575caf1f386e "Crenarchaeota"          
+# fc5b641a0b0408d99ddfb2a5ba64da59 "Cyanobacteria"          
+# 678424c0e69dd311d2b536cfd69a91a4 "Tenericutes"            
+# 6e342714744bf1b213ac0767d6c3998d "[Thermi]"               
+# b59d5976acdb148c29f724d6b7990410 "SR1"                    
+# 1395953fab837ed426f9b2ba24da41b1 "Firmicutes"             
+# 5cf1581a0381cd73e278302acd8751b1 "GN02"                   
+# 5b220f66423e4004eb3520bfae1f25d0 "Fusobacteria"           
+# 0effb4592c11dcdd619141df770563e1 "Actinobacteria"         
+# bfdc8d2e7693336b4f3781920d3fa253 "Proteobacteria"         
+# 84e6f7df01548135d92febfeae9a1ea6 "Spirochaetes"           
+# 14e1a93cf2379225b1fd6ed0f186bacb "FBP"                    
+# 101968ec709b68fcd964a68ff226dcd1 "Synergistetes"          
+# 21b849f15da11a7cc5122773552e0fef "Chloroflexi"            
+# 0160e14a78b18b903618f11bc732746e "Verrucomicrobia"        
+# 457c3dbae079470f3cf0bf146c191e1f "Acidobacteria"          
+# a3ebb6445ca32f39df9f84fe48525773 "Planctomycetes"         
+# 1830c14ead81ad012f1db0e12f8ab6a4 "TM7"                    
+# 541947958ad35c1591eb3ef433141196 "Bacteroidetes"          
+
+c(1,2,3,4,5,6,6,7,7,7,7,8,9) %>% unique
+```
+
+### META
+```{r}
+META %>% typeof()
+
+
+META %>% head()
+
+# Sample Data:        [6 samples by 8 sample variables]:
+#        barcode.sequence body.site year month day   subject reported.antibiotic.usage days.since.experiment.start
+# L1S105     AGTGCGATGCGT       gut 2009     3  17 subject-1                        No                         140
+# L1S140     ATGGCAGCTCTA       gut 2008    10  28 subject-2                       Yes                           0
+# L1S208     CTGAGATACGCG       gut 2009     1  20 subject-2                        No                          84
+# L1S257     CCGACTGAGATG       gut 2009     3  17 subject-2                        No                         140
+# L1S281     CCTCTCGTGATC       gut 2009     4  14 subject-2                        No                         168
+# L1S57      ACACACTATGGC       gut 2009     1  20 subject-1                        No                          84
+
+
+META$body.site %>% unique
+```
+
+
+
+## phlo
+```{r}
+PHYLO  <- phyloseq::phy_tree(ps)
+PHYLO
+
+str(PHYLO)
+# Phylogenetic tree with 770 tips and 768 internal nodes.
+# 
+# Tip labels:
+#   35bfc371d940cffdc527b7b4dc954456, a95851baf426c85eae4419617db902a7, 08bd73939f7bfd85daf2eaee7e9c9bf8, a9e0ac523112f40942da575caf1f386e, 033511c7ff4fe93866075cfb9129aa3b, fc5b641a0b0408d99ddfb2a5ba64da59, ...
+# Node labels:
+#   root, 1.000, 0.621, , 0.894, 0.627, ...
+# 
+# Rooted; includes branch lengths.
+
+
+# List of 5
+#  $ edge       : int [1:1537, 1:2] 771 772 772 773 773 771 774 775 775 774 ...
+#  $ edge.length: num [1:1537] 5.6517 0.0281 0.0723 0.1031 0.1564 ...
+#  $ Nnode      : int 768
+#  $ node.label : chr [1:768] "root" "1.000" "0.621" "" ...
+#  $ tip.label  : chr [1:770] "35bfc371d940cffdc527b7b4dc954456" "a95851baf426c85eae4419617db902a7" "08bd73939f7bfd85daf2eaee7e9c9bf8" "a9e0ac523112f40942da575caf1f386e" ...
+#  - attr(*, "class")= chr "phylo"
+#  - attr(*, "order")= chr "cladewise"
+?str
+
+PHYLO$edge %>% head()
+#      [,1] [,2]
+# [1,]  771  772
+# [2,]  772    1
+# [3,]  772  773
+# [4,]  773    2
+# [5,]  773    3
+# [6,]  771  774
+PHYLO$edge.length %>% head()
+# [1] 5.65169353 0.02812741 0.07228061 0.10308151 0.15644700 0.34230416
+PHYLO$Nnode %>% head()
+# [1] 768
+PHYLO$node.label %>% head()
+# [1] "root"  "1.000" "0.621" ""      "0.894" "0.627"
+PHYLO$tip.label %>% head()
+# [1] "35bfc371d940cffdc527b7b4dc954456" "a95851baf426c85eae4419617db902a7" "08bd73939f7bfd85daf2eaee7e9c9bf8"
+# [4] "a9e0ac523112f40942da575caf1f386e" "033511c7ff4fe93866075cfb9129aa3b" "fc5b641a0b0408d99ddfb2a5ba64da59"
+
+```
+## Filtering
+### Tax filtering
+```{r}
+ps.1000 = filter_taxa(ps, function(x) sum(x) > 1000, TRUE)
+# otu_table()   OTU Table:         [ 26 taxa and 34 samples ]
+
+
+
+ps.rel <- transform_sample_counts(ps, function(x) x/sum(x) )
+ps.rel.001 = filter_taxa(ps.rel, function(x) sum(x) > .01, TRUE)
+# otu_table()   OTU Table:         [ 269 taxa and 34 samples ]
+
+
+ps.Bac <- subset_taxa(ps, !is.na(Kingdom) & !Kingdom %in% c("Unassigned", "Archaea"))
+ps.Bac
+# phyloseq-class experiment-level object
+# otu_table()   OTU Table:         [ 767 taxa and 34 samples ]
+# sample_data() Sample Data:       [ 34 samples by 8 sample variables ]
+# tax_table()   Taxonomy Table:    [ 767 taxa by 7 taxonomic ranks ]
+# phy_tree()    Phylogenetic Tree: [ 767 tips and 765 internal nodes ]
+
+
+myTaxa = names(sort(taxa_sums(ps), decreasing = TRUE)[1:10])
+ps.2 = prune_taxa(myTaxa, ps)
+# otu_table()   OTU Table:         [ 10 taxa and 34 samples ]
+
+
+
+
+
+```
+### Sample filtering
+
+```{r}
+ps.1000 = prune_samples(sample_sums(ps) >= 1000, ps)
+# otu_table()   OTU Table:         [ 770 taxa and 31 samples ]
+sample_data(ps)
+ps.gut =subset_samples(ps,  body.site == "gut")
+
+ps.palms =subset_samples(ps,  body.site %in% c("left palm", "right palm"))
+
+# phyloseq-class experiment-level object
+# otu_table()   OTU Table:         [ 770 taxa and 17 samples ]
+# sample_data() Sample Data:       [ 17 samples by 8 sample variables ]
+# tax_table()   Taxonomy Table:    [ 770 taxa by 7 taxonomic ranks ]
+# phy_tree()    Phylogenetic Tree: [ 770 tips and 768 internal nodes ]
+
+ps.1000 = prune_samples(sample_sums(ps) >= 1000, ps) 
+```
+
+```{r}
+nsamples(ps)
+
+ntaxa(ps)
+
+rank_names(ps)
+
+sample_names(ps)
+#  [1] "L1S105" "L1S140" "L1S208" "L1S257" "L1S281" "L1S57"  "L1S76"  "L1S8"   "L2S155" "L2S175" "L2S204" "L2S222" "L2S240" "L2S309" "L2S357"
+# [16] "L2S382" "L3S242" "L3S294" "L3S313" "L3S341" "L3S360" "L3S378" "L4S112" "L4S137" "L4S63"  "L5S104" "L5S155" "L5S174" "L5S203" "L5S222"
+# [31] "L5S240" "L6S20"  "L6S68"  "L6S93" 
+
+sample_sums(ps)
+# L1S105 L1S140 L1S208 L1S257 L1S281  L1S57  L1S76   L1S8 L2S155 L2S175 L2S204 L2S222 L2S240 L2S309 L2S357 L2S382 L3S242 L3S294 L3S313 
+#   7780   7163   8152   6388   6615   8702   7867   7033   3932   4386   3158   3187   5061   1419   2373   4089    897   1225   1103 
+# L3S341 L3S360 L3S378 L4S112 L4S137  L4S63 L5S104 L5S155 L5S174 L5S203 L5S222 L5S240  L6S20  L6S68  L6S93 
+#    962    969   1249   8340   9820   9744   2227   1800   1953   2112   2521   1792   6855   5980   6953 
+
+sample_variables(ps)
+# [1] "barcode.sequence"            "body.site"                   "year"                        "month"                      
+# [5] "day"                         "subject"                     "reported.antibiotic.usage"   "days.since.experiment.start"
+
+
+taxa_names(ps) %>% head()
+# [1] "35bfc371d940cffdc527b7b4dc954456" "a95851baf426c85eae4419617db902a7" "08bd73939f7bfd85daf2eaee7e9c9bf8"
+# [4] "a9e0ac523112f40942da575caf1f386e" "033511c7ff4fe93866075cfb9129aa3b" "fc5b641a0b0408d99ddfb2a5ba64da59"
+
+taxa_sums(ps) %>% head()
+# 35bfc371d940cffdc527b7b4dc954456 a95851baf426c85eae4419617db902a7 08bd73939f7bfd85daf2eaee7e9c9bf8 a9e0ac523112f40942da575caf1f386e 
+#                                3                                3                                2                                8 
+# 033511c7ff4fe93866075cfb9129aa3b fc5b641a0b0408d99ddfb2a5ba64da59 
+#                                4                              304 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```
+
+
+```{r}
+
+ps %>% 
+  psmelt %>%
+  group_by(Phylum) %>% 
+  summarize(OTUn = (unique(OTU) %>% length)) %>% 
+  arrange(desc(OTUn))
+
+
+# # A tibble: 21 × 2
+#    Phylum                 OTUn
+#    <chr>                 <int>
+#  1 Firmicutes              303
+#  2 Proteobacteria          169
+#  3 Bacteroidetes           140
+#  4 Actinobacteria           68
+#  5 Fusobacteria             23
+#  6 Unclassified Bacteria    19
+#  7 Cyanobacteria            12
+#  8 Spirochaetes              6
+#  9 Verrucomicrobia           6
+# 10 Chloroflexi               3
+# # ℹ 11 more rows
+# # ℹ Use `print(n = ...)` to see more rows
+
+ps.p_ph <- phyloseq::tax_glom(ps, taxrank = "Phylum")
+ps.p_ph
+tax_table(ps.p_ph) %>% head()
+
+# Taxonomy Table:     [6 taxa by 7 taxonomic ranks]:
+#                                  Kingdom      Phylum                    Class Order Family Genus Species
+# a95851baf426c85eae4419617db902a7 "Unassigned" "Unclassified Unassigned" NA    NA    NA     NA    NA     
+# a9e0ac523112f40942da575caf1f386e "Archaea"    "Crenarchaeota"           NA    NA    NA     NA    NA     
+# e31b5affbe5e23b79a8619589f3b6620 "Bacteria"   "Cyanobacteria"           NA    NA    NA     NA    NA     
+# 678424c0e69dd311d2b536cfd69a91a4 "Bacteria"   "Tenericutes"             NA    NA    NA     NA    NA     
+# 9f4cdae8a020a8d9c4f54e5abf5a5769 "Bacteria"   "[Thermi]"                NA    NA    NA     NA    NA     
+# b59d5976acdb148c29f724d6b7990410 "Bacteria"   "SR1"                     NA    NA    NA     NA    NA  
+
+otu_table(ps.p_ph) %>% head()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+
+data("esophagus")
+# for speed
+ps.top30 = prune_taxa(taxa_names(ps)[1:30], ps)
+
+plot_tree(ps.top30, label.tips="taxa_names", size="abundance", title="Before tip_glom()", color = "Phylum", shape = "body.site")
+ggsave("./tree_1.png", width = 10, height = 6, dpi=300)
+
+plot_tree(tip_glom(ps.top30, h=0.2), label.tips="taxa_names", size="abundance", title="After tip_glom()", color = "Phylum", shape = "body.site")
+ggsave("./tree_2.png", width = 10, height = 6, dpi=300)
+
+plot_tree(tip_glom(ps.top30, h=0.3), label.tips="taxa_names", size="abundance", title="After tip_glom()", color = "Phylum", shape = "body.site")
+ggsave("./tree_3.png", width = 10, height = 6, dpi=300)
+
+?tip_glom
+```
+
+
+```{r}
+install.packages("ggridges")
+library(ggridges)
+ps %>% 
+  psmelt() %>% 
+  group_by(Sample) %>% 
+  mutate(Proportion = Abundance / sum(Abundance, na.rm = TRUE)) %>% 
+  filter(Proportion > 0) %>% 
+  filter(!is.na(Phylum)) %>% 
+  ggplot(aes(y = Phylum, x = log10(Proportion), fill = Phylum)) +
+  ggridges::geom_density_ridges2(scale = 1, alpha = 0.7, show.legend = FALSE) +
+  ggtitle("Compare distribution of relative abundances")
+
+ggsave("./proportion.png", dpi =300)
+```
+
+
+
+
+
+```{r}
+
+ps.rel.top50 = prune_taxa(taxa_names(ps.rel)[1:50], ps.rel)
+plot_tree(ps.rel.top50, color="body.site", size="abundance") 
+ggsave("./tree_4.png", width = 10, dpi =300)
+
+
+plot_tree(ps.top50, size="abundance", color="samples", min.abundance=3, label.tips="Genus")
+ggsave("./tree_5.png", width = 12, dpi =300)
+
+plot_tree(ps.rel.top50, color="Phylum",  label.tips="Genus", size="abundance", plot.margin=0.6)
+ggsave("./tree_6.png", width = 12, height = 10, dpi =300)
+```
+
+
+
+```{r}
+plot_tree(ps.rel.top50, "treeonly", nodeplotblank)
+ggsave("./Tree_1.png", dpi =300)
+
+plot_tree(ps.rel.top50, "treeonly", nodeplotblank) + coord_polar(theta="y")
+ggsave("./Tree_2.png", dpi =300)
+
+plot_tree(ps.rel.top50, "treeonly")
+
+
+plot_tree(ps.rel.top50)
+?plot_tree
+
+ggsave("./Tree_3.png", height = 10, dpi =300)
+```
+
+
+```{r}
+?plot_tree
+plot_tree(ps.rel.top50, color="samples", size="abundance", 
+          label.tips = NULL, nodelabf = NULL, base.spacing=0.1)
+ggsave("./Tree_4.png", height = 10, dpi =300)
+
+
+plot_tree(ps.rel.top50, size="abundance", color="samples", base.spacing=0.03)
+```
+
+```{r}
+
+
+```
+
+```{r}
+
+
+```
+
+```{r}
+
+
+```
+
+```{r}
+
+
+```
+
+```{r}
+
+
+```
+
+
+
+```{r}
+TAX <- tax_table(ps)
+TAX[,2] %>% unique %>% length
+```
+
+```{r}
+library(phyloseq)
+library(dplyr)
+
+type_abundance <- ps.rel %>% psmelt() %>% 
+  count(body.site, Phylum, wt = Abundance, name = "Abundance") %>%
+  group_by(body.site, Phylum) %>%
+  summarise(mean_abundance = mean(Abundance)) %>%
+    ungroup()
+ 
+
+ggplot(type_abundance, aes(x = Phylum, y = mean_abundance, 
+                              label = str_c(mean_abundance, "%"))) +
+  geom_col() +
+  facet_wrap(~ body.site) +
+  labs(title = "Mean abundance of each phylum at each type",
+       x = "body.site",
+       y = "Mean relative abundance (%)")+
+  theme(axis.text.x.bottom = element_text(angle = 90, vjust = 0.4, hjust=1)) +
+  coord_flip()
+
+ggsave("./proportion_2.png", width = 4, height = 6, dpi =300)
+
+```
+

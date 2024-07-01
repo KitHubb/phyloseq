@@ -1,0 +1,337 @@
+---
+title: "ancom-2"
+author: "kim soyeon"
+date: "2023-08-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(phyloseq)
+library(readr)
+library(tidyverse)
+library(ggplot2)
+library(ggrepel)
+ps <- readRDS("./ps.rds") 
+
+source("D:/KSY/Project/CA_HV/CA_HV_reseq_R/programs/ancom.R")
+
+```
+
+```{r}
+
+
+
+# ANCOM_modi의 분석은 "programs/ancom.R"에 포함된 feature_table_pre_process 이후 실행한다
+ANCOM_modi <- function(feature_table, meta_data, tax_data, tax_level = "Species", 
+                       struc_zero = NULL, main_var, p_adj_method = "BH",
+                       alpha = 0.05, adj_formula = NULL, rand_formula = NULL, lme_control = NULL){
+
+
+# OTU table transformation: 
+  # feature_table_pre_process 단계에서 본인의 otu table에 structural zeros가 존재하는지 판별한다 
+  # (1) Discard taxa with structural zeros (if any); (2) Add pseudocount (1) and take logarithm.
+  if (!is.null(struc_zero)) {  # struc_zero가 존재한다면 otu table에 pseudo-count 인 1값을 더하가
+    num_struc_zero = apply(struc_zero, 1, sum)
+    comp_table = feature_table[num_struc_zero == 0, ]
+  }else{  # struc_zero가 없다면 otu table 그대로 사용해라
+    comp_table = feature_table
+  }
+  comp_table = log(as.matrix(comp_table) + 1) # CLR trandf을 위한 log값 변환
+  n_taxa = dim(comp_table)[1]
+  taxa_id = rownames(comp_table)
+  n_samp = dim(comp_table)[2]
+  
+  # Determine the type of statistical test and its formula. 세부 옵션에 따른 통계적 계산
+  if (is.null(rand_formula) & is.null(adj_formula)) {
+    # Basic model
+    # Whether the main variable of interest has two levels or more?
+    if (length(unique(meta_data%>%pull(main_var))) == 2) {
+      # Two levels: Wilcoxon rank-sum test
+      tfun = stats::wilcox.test 
+    } else{
+      # More than two levels: Kruskal-Wallis test
+      tfun = stats::kruskal.test
+    }
+    # Formula
+    tformula = formula(paste("x ~", main_var, sep = " "))
+  }else if (is.null(rand_formula) & !is.null(adj_formula)) {
+    # Model: ANOVA
+    tfun = stats::aov
+    # Formula
+    tformula = formula(paste("x ~", main_var, "+", adj_formula, sep = " "))
+  }else if (!is.null(rand_formula)) {
+    # Model: Mixed-effects model
+    tfun = nlme::lme
+    # Formula
+    if (is.null(adj_formula)) {
+      # Random intercept model
+      tformula = formula(paste("x ~", main_var))
+    }else {
+      # Random coefficients/slope model
+      tformula = formula(paste("x ~", main_var, "+", adj_formula))
+    }
+  }
+  
+  # Calculate the p-value for each pairwise comparison of taxa. 
+  p_data = matrix(NA, nrow = n_taxa, ncol = n_taxa)
+  colnames(p_data) = taxa_id
+  rownames(p_data) = taxa_id
+  pb = txtProgressBar(0, n_taxa - 1, style = 3)
+  for (i in 1:(n_taxa - 1)) {
+    setTxtProgressBar(pb, i)
+    # Loop through each taxon.
+    # For each taxon i, additive log ratio (alr) transform the OTU table using taxon i as the reference.
+    # e.g. the first alr matrix will be the log abundance data (comp_table) recursively subtracted 
+    # by the log abundance of 1st taxon (1st column) column-wisely, and remove the first i columns since:
+    # the first (i - 1) columns were calculated by previous iterations, and
+    # the i^th column contains all zeros.
+    alr_data = apply(comp_table, 1, function(x) x - comp_table[i, ]) 
+    # apply(...) allows crossing the data in a number of ways and avoid explicit use of loop constructs.
+    # Here, we basically want to iteratively subtract each column of the comp_table by its i^th column.
+    alr_data = alr_data[, - (1:i), drop = FALSE]
+    n_lr = dim(alr_data)[2] # number of log-ratios (lr)
+    alr_data = cbind(alr_data, meta_data) # merge with the metadata
+    
+    # P-values
+    if (is.null(rand_formula) & is.null(adj_formula)) {
+      p_data[-(1:i), i] = apply(alr_data[, 1:n_lr, drop = FALSE], 2, function(x){
+        test_data = data.frame(x, alr_data, check.names = FALSE)
+        suppressWarnings(p <- tfun(tformula, data = test_data)$p.value)
+        return(p)
+        }
+      ) 
+    }else if (is.null(rand_formula) & !is.null(adj_formula)) {
+      p_data[-(1:i), i] = apply(alr_data[, 1:n_lr, drop = FALSE], 2, function(x){
+        fit = tfun(tformula, 
+                   data = data.frame(x, alr_data, check.names = FALSE), 
+                   na.action = na.omit)
+         p = summary(fit)[[1]][main_var, "Pr(>F)"]
+         return(p)
+        }
+      )
+    }else if (!is.null(rand_formula)) {
+      p_data[-(1:i), i] = apply(alr_data[, 1:n_lr, drop = FALSE], 2, function(x){
+        fit = try(tfun(fixed = tformula, 
+                       data = data.frame(x, alr_data, check.names = FALSE),
+                       random = formula(rand_formula),
+                       na.action = na.omit,
+                       control = lme_control),
+                  silent = TRUE)
+        
+        if (inherits(fit, "try-error")) {
+          p = NA
+        } else {
+          p = anova(fit)[main_var, "p-value"]
+        }
+        return(p)
+        }
+      ) 
+    }
+  }
+  close(pb)
+  # Complete the p-value matrix.
+  # What we got from above iterations is a lower triangle matrix of p-values.
+  p_data[upper.tri(p_data)] = t(p_data)[upper.tri(p_data)]
+  diag(p_data) = 1 # let p-values on diagonal equal to 1
+  p_data[is.na(p_data)] = 1 # let p-values of NA equal to 1
+  
+  # Multiple comparisons correction. # p-value값 보정
+  q_data = apply(p_data, 2, function(x) p.adjust(x, method = p_adj_method))
+  
+  # Calculate the W statistic of ANCOM.
+  # For each taxon, count the number of q-values < alpha.
+  W = apply(q_data, 2, function(x) sum(x < alpha))
+
+  # Organize outputs
+  out_comp = data.frame(taxa_id, W, row.names = NULL, check.names = FALSE)
+  # Declare a taxon to be differentially abundant based on the quantile of W statistic.
+  # We perform (n_taxa - 1) hypothesis testings on each taxon, so the maximum number of rejections is (n_taxa - 1).
+  out_comp = out_comp %>%  # w 임계값에 따라 통과 여부 표시 
+    mutate(detected_0.9 = ifelse(W > 0.9 * (n_taxa -1), TRUE, FALSE),
+           detected_0.8 = ifelse(W > 0.8 * (n_taxa -1), TRUE, FALSE),
+           detected_0.7 = ifelse(W > 0.7 * (n_taxa -1), TRUE, FALSE),
+           detected_0.6 = ifelse(W > 0.6 * (n_taxa -1), TRUE, FALSE))
+  
+  # Taxa with structural zeros are automatically declared to be differentially abundant
+  if (!is.null(struc_zero)){
+    out = data.frame(taxa_id = rownames(struc_zero), W = Inf, detected_0.9 = TRUE, 
+                     detected_0.8 = TRUE, detected_0.7 = TRUE, detected_0.6 = TRUE, 
+                     row.names = NULL, check.names = FALSE)
+    out[match(taxa_id, out$taxa_id), ] = out_comp
+  }else{
+    out = out_comp
+  }
+  
+  # Draw volcano plot 시각화 
+  # Calculate clr
+  clr_table = apply(feature_table, 2, clr)
+  # Calculate clr mean difference
+  eff_size = apply(clr_table, 1, function(y) 
+    lm(y ~ x, data = data.frame(y = y, 
+                                x = meta_data %>% pull(main_var),
+                                check.names = FALSE))$coef[-1])
+  
+  if (is.matrix(eff_size)){
+    # Data frame for the figure
+    dat_fig = data.frame(taxa_id = out$taxa_id, t(eff_size), y = out$W, check.names = FALSE) %>% 
+      mutate(zero_ind = factor(ifelse(is.infinite(y), "Yes", "No"), levels = c("Yes", "No"))) %>%
+      gather(key = group, value = x, rownames(eff_size))
+    # Replcace "x" to the name of covariate
+    dat_fig$group = sapply(dat_fig$group, function(x) gsub("x", paste0(main_var, " = "), x))
+    # Replace Inf by (n_taxa - 1) for structural zeros
+    dat_fig$y = replace(dat_fig$y, is.infinite(dat_fig$y), n_taxa - 1)
+    
+    fig = ggplot(data = dat_fig) + aes(x = x, y = y) + 
+      geom_point(aes(color = zero_ind)) + 
+      facet_wrap(~ group) +
+      labs(x = "CLR mean difference", y = "W statistic") +
+      scale_color_discrete(name = "Structural zero", drop = FALSE) + 
+      theme_bw() +
+      theme(plot.title = element_text(hjust = 0.5), legend.position = "top",
+            strip.background = element_rect(fill = "white"))
+    fig  
+  } else{
+
+    # fig = ggplot(data = merge_data) + aes(x = x, y = y) +  ## 
+    # # fig = ggplot(data = dat_fig) + aes(x = x, y = y) + 
+    #   geom_point(aes(color = zero_ind)) + 
+    #   
+    #   labs(x = "CLR mean difference", y = "W statistic") +
+    #   scale_color_discrete(name = "Structural zero", drop = FALSE) + 
+    #   theme_bw() +
+    #   theme(plot.title = element_text(hjust = 0.5), legend.position = "top") + 
+    #   geom_text_repel(aes_string(label = tax_level), max.overlaps =15 ) ##
+    # fig
+    
+    
+    out_data <- merge(out, tax_data, by.x = "taxa_id", by.y = "row.names")  
+    
+    # Data frame for the figure
+    dat_fig = data.frame(taxa_id = out$taxa_id, x = eff_size, y = out$W) %>% 
+      mutate(zero_ind = factor(ifelse(is.infinite(y), "Yes", "No"), levels = c("Yes", "No")))
+    # Replace Inf by (n_taxa - 1) for structural zeros
+    dat_fig$y = replace(dat_fig$y, is.infinite(dat_fig$y), n_taxa - 1)
+    
+    merge_data <- merge(dat_fig, tax_data, by.x = "taxa_id", by.y = "row.names")  
+    
+    counts_tab = clr_table; groups = meta_data[, main_var]; sample_in_cols=T
+    get_sl_enrich_group <- function(counts_tab, groups, sample_in_cols = TRUE) { # by microbiome Marker 
+      if (sample_in_cols) {
+        counts_tab <- t(counts_tab)
+        }
+      counts_mean <- by(counts_tab, groups, colMeans)
+      counts_mean <- do.call(cbind, counts_mean)
+      # idx_enrich <- apply(counts_mean, 1, which.max)
+      # group_enrich <- colnames(counts_mean)[idx_enrich]
+      return(data.frame(counts_mean))
+    }
+    group_clr_abund <- get_sl_enrich_group(clr_table, meta_data[, main_var], sample_in_cols=T)
+    merge_data2 <- merge(merge_data, group_clr_abund, by.x = "taxa_id", by.y = "row.names")
+
+    gr_compar <- meta_data[, main_var] %>% unique 
+    com1 <- as.character(gr_compar[1])
+    com2 <- as.character(gr_compar[2])
+    
+    Minus = merge_data2[, com1] - merge_data2[, com2] 
+    merge_data3 <- merge_data2 %>% 
+      mutate(enrich_group = if_else(Minus >= 0, com1, com2))
+    
+    fig = ggplot(data = merge_data3) + aes(x = x, y = y) +  
+      geom_point(aes(color = enrich_group)) + 
+      labs(x = "CLR mean difference", y = "W statistic") +
+      scale_color_discrete(name = "Enrich group", drop = FALSE) + 
+      theme_bw() +
+      theme(plot.title = element_text(hjust = 0.5), legend.position = "top") + 
+      ggrepel::geom_text_repel(aes_string(label = tax_level), max.overlaps = 15) ##
+    fig
+    
+  }
+  
+  res = list(p_data = p_data, q_data = q_data, out = out_data, fig = fig)
+  return(res)
+}
+
+```
+
+```{r}
+phyloseq = ps.gt; Group = "body.site"; tax_level = "Genus";
+
+ANCOM_volcano <- function(phyloseq, Group, tax_level, group_var) {
+  # import 
+  otu_data <- otu_table(phyloseq) %>% as.data.frame() # %>% t() %>% as.data.frame() #  absolute abundance table
+  meta_data <- sample_data(phyloseq) %>% as.data.frame()
+  tax_data <- tax_table(phyloseq) %>% as.data.frame()
+  meta_data$SampleID <- rownames(meta_data)
+  # Step 1: Data preprocessing 데이터 전처리 
+  
+  # 옵션 값 설정
+  feature_table = otu_data; sample_var = "SampleID"; group_var = NULL  
+  out_cut = 0.05; zero_cut = 0.90; lib_cut = 1000; neg_lb = FALSE
+  
+  
+  # 전처리 
+  prepro = feature_table_pre_process(feature_table, meta_data, sample_var, group_var, 
+                                     out_cut, zero_cut, lib_cut, neg_lb)
+  # 데이터 정리
+  feature_table = prepro$feature_table # Preprocessed feature table
+  meta_data = prepro$meta_data # Preprocessed metadata
+  struc_zero = prepro$structure_zeros # Structural zero info
+    
+  # Step 2:ANCOM ver 2
+  # 옵션값 설정 
+  main_var = Group; p_adj_method = "BH"; alpha = 0.05
+  adj_formula = NULL; rand_formula = NULL; lme_control = NULL;seed = 42
+  
+  # ANCOM ver 2 분석
+  set.seed(seed)
+  res = ANCOM_modi(feature_table, meta_data, tax_data = tax_data, tax_level =  tax_level, 
+                   struc_zero, main_var, p_adj_method, alpha, adj_formula, rand_formula, lme_control)
+  res$fig
+  res$out
+  
+  
+  # Step 3: Volcano Plot
+  
+  # Number of taxa except structural zeros
+  n_taxa = ifelse(is.null(struc_zero), nrow(feature_table), sum(apply(struc_zero, 1, sum) == 0))
+  # Cutoff values for declaring differentially abundant taxa
+  cut_off = c(0.9 * (n_taxa - 1), 0.8 * (n_taxa - 1), 0.7 * (n_taxa - 1), 0.6 * (n_taxa - 1))
+  names(cut_off) = c("detected_0.9", "detected_0.8", "detected_0.7", "detected_0.6")
+  
+  # Annotation data
+  dat_ann.7 = data.frame(x = min(res$fig$data$x), y = cut_off["detected_0.7"], label = "W[0.7]")
+
+  
+  fig = res$fig +
+    geom_hline(yintercept = cut_off["detected_0.7"], linetype = "dashed") +
+    geom_text(data = dat_ann.7, aes(x = x, y = y, label = label), size = 4, 
+              vjust = -0.5, hjust = 0, color = "orange", parse = TRUE)  
+
+  fig
+return(list(out = res$out, fig = fig))
+
+}
+
+```
+
+
+```{r}
+
+ps.gt <-  subset_samples(ps, body.site %in% c("gut", "tongue"))
+ps.gt.g <- tax_glom(ps.gt, taxrank = "Genus")
+ps.gt.sp <- tax_glom(ps.gt, taxrank = "Species")
+
+
+Genus <- ANCOM_volcano(ps.gt.g, "body.site", "Genus")
+ggsave(plot = Genus$fig, filename = "./ancom2_genus.png", device = png, width = 10, height = 8) 
+Species <- ANCOM_volcano(ps.gt.sp, "body.site", "Species")
+ggsave(plot = Species$fig, filename = "./ancom2_species.png", device = png, width = 10, height = 8) 
+ASV <- ANCOM_volcano(ps.gt, "body.site", "Species")
+ggsave(plot = ASV$fig, filename = "./ancom2_ASV.png", device = png, width = 10, height = 8) 
+
+
+```

@@ -1,0 +1,1691 @@
+---
+title: "2023-08-29-Network_plot"
+author: "kim soyeon"
+date: "2023-08-29"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+# Install NetCoMi
+# devtools::install_github("stefpeschel/NetCoMi", 
+#                          dependencies = c("Depends", "Imports", "LinkingTo"),
+#                          repos = c("https://cloud.r-project.org/",
+#                                    BiocManager::repositories()))
+# devtools::install_github("zdk123/SpiecEasi")
+# devtools::install_github("GraceYoon/SPRING")
+
+
+library(NetCoMi)
+
+```
+
+
+```{r}
+library(NetCoMi)
+library(metagMisc)
+library(phyloseq)
+library(igraph)
+library(plyr)
+# BiocManager::install ("ForceAtlas2") 
+# library(ForceAtlas2)
+library(pals)
+library(RColorBrewer)
+library(corrplot)
+library(tidyverse)
+
+# ps <- readRDS("./ps.rds") # %>% subset_samples(body.site %in% c("gut", "tongue"))
+# sample_data(ps) # subject
+```
+
+
+## 1. 재현성 있는 예제 
+- 예제 데이터 : https://github.com/stefpeschel/NetCoMi#soil-microbiome-example
+```{r}
+library(NetCoMi)
+library(phyloseq)
+data(soilrep)
+soilrep
+# phyloseq-class experiment-level object
+# otu_table()   OTU Table:         [ 16825 taxa and 56 samples ]
+# sample_data() Sample Data:       [ 56 samples by 4 sample variables ]
+
+soil_warm_yes <- phyloseq::subset_samples(soilrep, warmed == "yes")
+soil_warm_no  <- phyloseq::subset_samples(soilrep, warmed == "no")
+
+
+# Constructing microbial association networks and dissimilarity based networks (where nodes are subjects) from compositional count data.
+net_seas_p <- netConstruct(soil_warm_yes, soil_warm_no,
+                           filtTax = "highestVar",
+                           filtTaxPar = list(highestVar = 500),
+                           zeroMethod = "pseudo",
+                           normMethod = "clr",
+                           measure = "pearson",
+                           verbose = 0)
+# Determine network properties for objects of class microNet.
+netprops1 <- netAnalyze(net_seas_p, clustMethod = "cluster_fast_greedy")
+
+nclust <- as.numeric(max(names(table(netprops1$clustering$clust1))))
+
+col <- c(topo.colors(nclust), rainbow(6))
+
+# plot 
+plot(netprops1, 
+     sameLayout = TRUE, 
+     layoutGroup = "union", 
+     colorVec = col,
+     borderCol = "gray40", 
+     nodeSize = "degree", 
+     cexNodes = 0.9, 
+     nodeSizeSpread = 3, 
+     edgeTranspLow = 80, 
+     edgeTranspHigh = 50,
+     groupNames = c("Warming", "Non-warming"), 
+     showTitle = TRUE, 
+     cexTitle = 2.8,
+     mar = c(1,1,3,1), 
+     repulsion = 0.9, 
+     labels = FALSE, 
+     rmSingles = "inboth",
+     nodeFilter = "clustMin", 
+     nodeFilterPar = 10, 
+     nodeTransp = 50, 
+     hubTransp = 30)
+
+```
+
+
+
+## 2. 기본 예제 
+- SpiecEasi EXAMPLE DATA :  American Gut data 
+  - amgut1, amgut2
+```{R}
+library(NetCoMi)
+data("amgut1.filt")
+data("amgut2.filt.phy")
+amgut2.filt.phy
+# phyloseq-class experiment-level object
+# otu_table()   OTU Table:         [ 138 taxa and 296 samples ]
+# sample_data() Sample Data:       [ 296 samples by 166 sample variables ]
+# tax_table()   Taxonomy Table:    [ 138 taxa by 7 taxonomic ranks ]
+
+amgut1.filt # OTU
+dim(amgut1.filt) # 289 127
+
+
+##############################################
+##  1. Network construction and analysis    ## 
+##############################################
+
+net_spring <- netConstruct(amgut1.filt,
+                           # taxa filtering  
+                           filtTax = "highestFreq",
+                           filtTaxPar = list(highestFreq = 50), # 가장 높은 빈도를 가진 Top 50 taxa만 포함 
+                           filtSamp = "totalReads",
+                           filtSampPar = list(totalReads = 1000), #  적어도 1000 read 이상인 샘플만 
+                           # distance measurement
+                           measure = "spring", # dissimilarity measure
+                           measurePar = list(nlambda=10, # real data에서는 높게 잡아야 함
+                                             rep.num=10),
+                           # normalization 
+                           normMethod = "none", # SPRING use "none"(absolute abundance) and "mclr"(if relative abundance)
+                           zeroMethod = "none", # with SPRING
+                           sparsMethod = "none", # SPRING returns a sparse network where no additional sparsification step is necessary.
+                           dissFunc = "signed",  # associations 을 dissimilarities 로 변환 
+                           verbose = 3, # 실행단계 message로 알려줌
+                           seed = 42)
+
+
+net_spring
+```
+- SPRING : https://www.frontiersin.org/articles/10.3389/fgene.2019.00516/full
+  - 네트워크 계산 방법으로 transformation은 None혹은 mclr을 사용하며 correlation 추정은 SPR correlation
+  - 인용수 67 
+  - absolute abundance가 안되면 mclr쓰고 아니면 absolute써야 함
+```{r}
+##############################################
+##  2. Analyzing the constructed network    ## 
+##############################################
+
+# NetCoMi’s netAnalyze() function is used for analyzing the constructed network(s).
+props_spring <- netAnalyze(net_spring, 
+                           centrLCC = TRUE, # 중심 위치 잡을때 메이저한 노드만 쓰겠다. 
+                           clustMethod = "cluster_fast_greedy", # cluster_fast_greedy 사용해서 군집화 하겠다
+                           hubPar = "eigenvector", # 
+                           weightDeg = FALSE, normDeg = FALSE) # degree of a node is simply defined as number of nodes that are adjacent to the node.
+
+summary(props_spring, numbNodes = 5L)
+
+```
+
+- centrLCC = TRUE ; Here, centrLCC is set to TRUE meaning that centralities are calculated only for nodes in the largest connected component (LCC).
+  네트워크의 중심을 계산할때 가장 큰 연결구성료소에 혹사는 노드들에 대해서만 중심 계산, 
+  즉, 전체가 아닌 큰 연결구조에 포함된 노드들만 중심계산에 사용한다 
+- clustMethod = "cluster_fast_greedy" : Clusters are identified using greedy modularity optimization (by cluster_fast_greedy() from igraph package).
+- hubPar = "eigenvector" : options =  degree, betweenness, closeness, and eigenvector 
+  - 	character vector with one or more elements (centrality measures) used for identifying hub nodes. If multiple measures are given, hubs are nodes with highest centrality for all selected measures. 
+  - Hubs are nodes with an eigenvector centrality value above the empirical 95% quantile of all eigenvector centralities in the network (argument hubPar). 
+  
+  
+
+```{r}
+library(graphics)
+##############################################
+##  3. Plotting the GCM heatmap manually    ## 
+##############################################
+
+plotHeat(mat = props_spring$graphletLCC$gcm1,
+         pmat = props_spring$graphletLCC$pAdjust1,
+         type = "mixed",
+         title = "GCM", 
+         colorLim = c(-1, 1),
+         mar = c(2, 0, 2, 0)) + 
+
+# Add rectangles highlighting the four types of orbits
+graphics::rect(xleft   = c( 0.5,  1.5, 4.5,  7.5),
+               ybottom = c(11.5,  7.5, 4.5,  0.5),
+               xright  = c( 1.5,  4.5, 7.5, 11.5),
+               ytop    = c(10.5, 10.5, 7.5,  4.5),
+               lwd = 2, xpd = NA) 
+
+text(6, -0.2, xpd = NA, 
+     "Significance codes:  ***: 0.001;  **: 0.01;  *: 0.05")
+
+```
+
+```{r}
+##############################################
+##        4. Visualizing the network        ## 
+##############################################
+
+p <- plot(props_spring, 
+          nodeColor = "cluster", 
+          nodeSize = "eigenvector",
+          title1 = "Network on OTU level with SPRING associations", 
+          showTitle = TRUE,
+          cexTitle = 2.3)
+
+legend(0.7, 1.1, cex = 2.2, title = "estimated association:",
+       legend = c("+","-"), lty = 1, lwd = 3, col = c("#009900","red"), 
+       bty = "n", horiz = TRUE)
+
+
+p$q1$Arguments$cut
+```
+- 색 : negative estimated associations are colored in red by default (negDiffCol = TRUE)
+- 투명도 : 가중치에 따라 절댓값의 기준 이상의 값에는 다른 투명도 적용, 이는 ```p$q1$Arguments$cut```로 확인 가능
+
+
+# 3. pearson correlation measurement
+- Since Pearson correlations may lead to compositional effects when applied to sequencing data, we use the clr transformation as normalization method
+```{r}
+
+## 1. 
+net_pears <- netConstruct(amgut2.filt.phy,  
+                          measure = "pearson",
+                          normMethod = "clr", # For Pearson correlations
+                          zeroMethod = "multRepl", #  Zero treatment is necessary
+                          sparsMethod = "threshold",
+                          thresh = 0.3, # threshold =  absolute correlation greater than or equal to 0.3 are connected
+                          verbose = 3)
+
+## 2. 
+props_pears <- netAnalyze(net_pears,
+                          # centrLCC = TRUE, 
+                          clustMethod = "cluster_fast_greedy")
+
+
+## 3. 
+plot(props_pears, 
+     nodeColor = "cluster", 
+     nodeSize = "eigenvector",
+     title1 = "Network on OTU level with Pearson correlations", 
+     showTitle = TRUE,
+     cexTitle = 2.3) + 
+
+legend(0.7, 1.1, cex = 2.2, title = "estimated correlation:", 
+       legend = c("+","-"), lty = 1, lwd = 3, col = c("#009900","red"), 
+       bty = "n", horiz = TRUE)
+
+```
+
+```{r}
+
+
+plot(props_pears, 
+     nodeColor = "cluster", 
+     nodeSize = "eigenvector",
+     repulsion = 0.8,         # Place the nodes further apart.
+     rmSingles = TRUE,        # Single nodes are removed.
+     labelScale = FALSE, cexLabels = 1.6,    #  All labels have equal size and are enlarged to improve readability of small node’s labels.
+     nodeSizeSpread = 3,      #  Node sizes are more similar if the value is decreased (default is 4) 작은 노드들 크기 키울때 사용(큰 노드는 유지)
+     cexNodes = 2,
+     hubBorderCol = "darkgray", # nodeborder color
+     title1 = "Network on OTU level with Pearson correlations", 
+     showTitle = TRUE,
+     cexTitle = 2.3)
+
+legend(0.7, 1.1, cex = 2.2, title = "estimated correlation:",
+       legend = c("+","-"), lty = 1, lwd = 3, col = c("#009900","red"),
+       bty = "n", horiz = TRUE)
+```
+
+
+```{r}
+## Edge filtering
+
+plot(props_pears,
+     ## filtering 
+     edgeInvisFilter = "threshold",  # edgeFilter 은 컴퓨터에서 계산 전에 제거/  edgeInvisFilter는 컴퓨터에서 계산 후 제거
+     edgeInvisPar = 0.4,
+     ## basic setting
+     nodeColor = "cluster", 
+     nodeSize = "eigenvector",
+     repulsion = 0.8,
+     rmSingles = TRUE,
+     labelScale = FALSE,
+     cexLabels = 1.6,
+     nodeSizeSpread = 3,
+     cexNodes = 2,
+     hubBorderCol = "darkgray",
+     title1 = "Network on OTU level with Pearson correlations", 
+     showTitle = TRUE,
+     cexTitle = 2.3)
+
+legend(0.7, 1.1, cex = 2.2, title = "estimated correlation:",
+       legend = c("+","-"), lty = 1, lwd = 3, col = c("#009900","red"),
+       bty = "n", horiz = TRUE)
+
+```
+
+# 4. Genus label : use phyloseq
+### pearson 
+```{r}
+## Network on genus level
+
+library(phyloseq)
+data("amgut2.filt.phy")
+
+# Agglomerate to genus level
+amgut_genus <- tax_glom(amgut2.filt.phy, taxrank = "Rank6")
+
+# Taxonomic table
+taxtab <- as(tax_table(amgut_genus), "matrix")
+
+# Rename taxonomic table and make Rank6 (genus) unique
+amgut_genus_renamed <- NetCoMi::renameTaxa(amgut_genus, 
+                                  pat = "<name>", 
+                                  substPat = "<name>_<subst_name>(<subst_R>)",
+                                  numDupli = "Rank6")
+
+# Network construction and analysis
+net_genus <- netConstruct(amgut_genus_renamed,
+                          taxRank = "Rank6", ###### 
+                          measure = "pearson",
+                          zeroMethod = "multRepl",
+                          normMethod = "clr",
+                          sparsMethod = "threshold",
+                          thresh = 0.3,
+                          verbose = 3)
+
+props_genus <- netAnalyze(net_genus, clustMethod = "cluster_fast_greedy")
+
+
+
+
+## Network plots
+
+# Compute layout
+graph3 <- igraph::graph_from_adjacency_matrix(net_genus$adjaMat1, 
+                                              weighted = TRUE)
+
+set.seed(42)
+lay_fr <- igraph::layout_with_fr(graph3)
+
+# Row names of the layout matrix must match the node names
+rownames(lay_fr) <- rownames(net_genus$adjaMat1)
+
+plot(props_genus,
+     layout = lay_fr,
+     shortenLabels = "intelligent",
+     labelLength = 10,
+     labelPattern = c(5, "'", 3, "'", 3),
+     nodeSize = "fix",
+     nodeColor = "gray",
+     cexNodes = 0.8,
+     cexHubs = 1.1,
+     cexLabels = 2,
+     title1 = "Network on genus level with Pearson correlations", 
+     showTitle = TRUE,
+     cexTitle = 2.3)
+
+legend(0.7, 1.1, cex = 2.2, title = "estimated correlation:",
+       legend = c("+","-"), lty = 1, lwd = 3, col = c("#009900","red"), 
+       bty = "n", horiz = TRUE)
+```
+
+```{r}
+set.seed(123456)
+
+plot(props_genus,
+     layout = "layout_with_fr", # Fruchterman-Reingold 
+     shortenLabels = "intelligent",
+     labelLength = 10,
+     labelPattern = c(5, "'", 3, "'", 3),
+     labelScale = FALSE,    # Labels are not scaled to node sizes
+     rmSingles = TRUE,      # Single nodes are removed
+     nodeSize = "clr",      # Node sizes are scaled to the column sums of clr-transformed data
+     nodeColor = "cluster", # Node colors represent the determined clusters
+     hubBorderCol = "darkgray", # Border color of hub nodes is changed from black to darkgray
+     cexNodes = 2,
+     cexLabels = 1.5,
+     cexHubLabels = 2,      # Label size of hubs is enlarged
+     title1 = "Network on genus level with Pearson correlations", 
+     showTitle = TRUE,
+     cexTitle = 2.3)
+
+legend(0.7, 1.1, cex = 2.2, title = "estimated correlation:",
+       legend = c("+","-"), lty = 1, lwd = 3, col = c("#009900","red"), 
+       bty = "n", horiz = TRUE)
+
+
+
+sort(colSums(net_genus$normCounts1), decreasing = TRUE)[1:10]
+```
+-Fruchterman-Reingold layout algorithm : 
+  reduced” network without singletons
+
+
+### SPRING ★★★★★★★★★
+- “spring” layout as part of qgraph() (the function is generally used for network plotting in NetCoMi)
+- A repulsion value below 1 places the nodes further apart
+- Labels are not shortened anymore 
+- Nodes (bacteria on genus level) are colored according to the respective phylum 노드 컬러는 phylum level에 따른다
+- Edges representing positive associations are colored in blue, negative ones in orange (just to give an example for alternative edge coloring) 양의 상관관계는 파랑, 음의 상관관계를 주황으로 표시하겠다
+- Transparency is increased for edges with high weight to improve the readability of node labels 잙 읽을 수 있도록 node 투명도 높이기
+
+
+```{r}
+
+# Get phyla names
+taxtab <- as(tax_table(amgut_genus_renamed), "matrix")
+phyla <- as.factor(gsub("p__", "", taxtab[, "Rank2"]))
+names(phyla) <- taxtab[, "Rank6"]
+#table(phyla)
+
+# Define phylum colors
+phylcol <- c("cyan", "blue3", "red", "lawngreen", "yellow", "deeppink")
+
+plot(props_genus,
+     layout = "spring",
+     repulsion = 0.84,
+     shortenLabels = "none",
+     charToRm = "g__", # g__붙어 있으면 제거해라
+     labelScale = FALSE,
+     rmSingles = TRUE,
+     nodeSize = "clr",
+     nodeSizeSpread = 4,
+     nodeColor = "feature", 
+     featVecCol = phyla, 
+     colorVec =  phylcol,
+     posCol = "darkturquoise", 
+     negCol = "orange",
+     edgeTranspLow = 0,
+     edgeTranspHigh = 40,
+     cexNodes = 2,
+     cexLabels = 2,
+     cexHubLabels = 2.5,
+     title1 = "Network on genus level with Pearson correlations", 
+     showTitle = TRUE,
+     cexTitle = 2.3)
+
+# Colors used in the legend should be equally transparent as in the plot
+phylcol_transp <- colToTransp(phylcol, 60)
+
+legend(-1.2, 1.2, cex = 2, pt.cex = 2.5, title = "Phylum:", 
+       legend=levels(phyla), col = phylcol_transp, bty = "n", pch = 16) 
+
+legend(0.7, 1.1, cex = 2.2, title = "estimated correlation:",
+       legend = c("+","-"), lty = 1, lwd = 3, col = c("darkturquoise","orange"), 
+       bty = "n", horiz = TRUE)
+
+```
+
+# 5.  Compare two networks
+### tutorial 
+```{r}
+
+
+##  Split the phyloseq object into two groups
+amgut_season_yes <- phyloseq::subset_samples(amgut2.filt.phy, 
+                                             SEASONAL_ALLERGIES == "yes")
+amgut_season_no <- phyloseq::subset_samples(amgut2.filt.phy, 
+                                            SEASONAL_ALLERGIES == "no")
+
+amgut_season_yes
+amgut_season_no
+
+
+n_yes <- phyloseq::nsamples(amgut_season_yes) # 121
+n_no <- phyloseq::nsamples(amgut_season_no)  # 163
+
+##  Network construction
+net_season <- netConstruct(data = amgut_season_no, 
+                           data2 = amgut_season_yes,  
+                           
+                           filtTax = "highestVar",
+                           filtTaxPar = list(highestVar = 50), # topp 50 node 
+                           filtSamp = "highestFreq",
+                           filtSampPar = list(highestFreq = n_yes), # 두 그룹의 비교를 편하게 하기 위해  highest frequency 인 샘플이 개수를 121개로 맞춘다
+                           
+                           measure = "spring",
+                           measurePar = list(nlambda=10, 
+                                             rep.num=10),
+                           
+                           normMethod = "none", 
+                           zeroMethod = "none",
+                           sparsMethod = "none", 
+                           
+                           dissFunc = "signed",
+                           verbose = 2,
+                           seed = 123456)
+
+
+# Checking input arguments ... Done.
+# Data filtering ...
+# 42 samples removed in data set 1.
+# 0 samples removed in data set 2.
+# 96 taxa removed in each data set.
+# 1 rows with zero sum removed in group 2.
+# 42 taxa and 121 samples remaining in group 1.
+# 42 taxa and 120 samples remaining in group 2.
+# 
+# Calculate 'spring' associations ... Done.
+# 
+# Calculate associations in group 2 ... 
+
+```
+
+혹은 아래 방법을 사용할 수 있다
+```{r}
+# # Get count table
+# countMat <- phyloseq::otu_table(amgut2.filt.phy)
+# 
+# # netConstruct() expects samples in rows
+# countMat <- t(as(countMat, "matrix"))
+# 
+# group_vec <- phyloseq::get_variable(amgut2.filt.phy, "SEASONAL_ALLERGIES")
+# 
+# # Select the two groups of interest (level "none" is excluded)
+# sel <- which(group_vec %in% c("no", "yes"))
+# group_vec <- group_vec[sel]
+# countMat <- countMat[sel, ]
+# 
+# net_season <- netConstruct(countMat, 
+#                            group = group_vec, 
+#                            filtTax = "highestVar",
+#                            filtTaxPar = list(highestVar = 50),
+#                            filtSamp = "highestFreq",
+#                            filtSampPar = list(highestFreq = n_yes),
+#                            measure = "spring",
+#                            measurePar = list(nlambda=10, 
+#                                              rep.num=10),
+#                            normMethod = "none", 
+#                            zeroMethod = "none",
+#                            sparsMethod = "none", 
+#                            dissFunc = "signed",
+#                            verbose = 3,
+#                            seed = 123456)
+```
+
+```{r}
+## Network analysis
+props_season <- netAnalyze(net_season, 
+                           centrLCC = FALSE,
+                           avDissIgnoreInf = TRUE,
+                           sPathNorm = FALSE,
+                           clustMethod = "cluster_fast_greedy",
+                           hubPar = c("degree", "eigenvector"),
+                           hubQuant = 0.9,
+                           lnormFit = TRUE,
+                           normDeg = FALSE,
+                           normBetw = FALSE,
+                           normClose = FALSE,
+                           normEigen = FALSE)
+
+
+## Visual network comparison
+plot(props_season, 
+     sameLayout = FALSE, 
+     nodeColor = "cluster",
+     nodeSize = "mclr",
+     labelScale = FALSE,
+     cexNodes = 1.5, 
+     cexLabels = 2.5,
+     cexHubLabels = 3,
+     cexTitle = 3.7,
+     groupNames = c("No seasonal allergies", "Seasonal allergies"),
+     hubBorderCol  = "gray40")
+
+legend("bottom", title = "estimated association:", legend = c("+","-"), 
+       col = c("#009900","red"), inset = 0.02, cex = 4, lty = 1, lwd = 4, 
+       bty = "n", horiz = TRUE)
+```
+### china code 
+- https://blog.csdn.net/weixin_46623488/article/details/119533495
+```{r}
+
+##  Split the phyloseq object into two groups
+amgut_season_yes <- phyloseq::subset_samples(amgut2.filt.phy, 
+                                             SEASONAL_ALLERGIES == "yes")
+amgut_season_no <- phyloseq::subset_samples(amgut2.filt.phy, 
+                                            SEASONAL_ALLERGIES == "no")
+
+amgut_season_yes
+amgut_season_no
+
+
+n_yes <- phyloseq::nsamples(amgut_season_yes) # 121
+n_no <- phyloseq::nsamples(amgut_season_no)  # 163
+
+##  Network construction
+net_season2 <- netConstruct(data = amgut_season_no, 
+                           data2 = amgut_season_yes,  
+                           
+                           filtTax = "none",
+                           
+                           measure = "sparcc", #  measure = "sparcc"
+                           measurePar = list(nlambda=10, 
+                                             rep.num=10),
+                           
+                           normMethod = "clr", 
+                           zeroMethod = "none",
+                           sparsMethod = "threshold", 
+                           adjust = "adaptBH",
+                           thresh = 0.3,
+                           
+                           dissFunc = "signed",
+                           verbose = 2,
+                           seed = 123456)
+
+
+summary(net_season2)
+
+
+#网络分析和绘图  ??netAnalyze
+props_season2 <- netAnalyze(net_season2, 
+                            centrLCC = TRUE,
+                            clustMethod = "cluster_fast_greedy",
+                  hubPar = c("degree", "closeness","eigenvector"))
+summary(props_season2)
+
+
+p1=plot(props_season2, 
+        nodeColor = "cluster", 
+        nodeSize = "clr",
+        repulsion = 0.8,
+        rmSingles = TRUE,
+        labelScale = FALSE,
+        cexLabels = 0.6,
+        nodeSizeSpread = 3,
+        cexNodes = 4,
+        shortenLabels= "none",
+        title1 = "Network on OTU level with spearman correlations", 
+        showTitle = TRUE,
+        cexTitle = 1.5)
+
+```
+### Genus
+```{r}
+
+
+
+## Network on genus level
+
+library(phyloseq)
+data("amgut2.filt.phy")
+
+# Agglomerate to genus level
+amgut_genus <- tax_glom(amgut2.filt.phy, taxrank = "Rank6")
+
+# Taxonomic table
+taxtab <- as(tax_table(amgut_genus), "matrix")
+
+# Rename taxonomic table and make Rank6 (genus) unique
+amgut_genus_renamed <- NetCoMi::renameTaxa(amgut_genus, 
+                                  pat = "<name>", 
+                                  substPat = "<name>_<subst_name>(<subst_R>)",
+                                  numDupli = "Rank6")
+
+
+amgut_season_rename_yes <- phyloseq::subset_samples(amgut_genus_renamed, 
+                                             SEASONAL_ALLERGIES == "yes")
+amgut_season_rename_no <- phyloseq::subset_samples(amgut_genus_renamed, 
+                                            SEASONAL_ALLERGIES == "no")
+
+# Network construction and analysis
+
+net_season_genus <- netConstruct(data = amgut_season_rename_no,
+                                 data2 = amgut_season_rename_yes,  
+                                 
+                                 filtTax = "none",
+                                 taxRank = "Rank6", ###### 
+                                 measure = "sparcc", #  measure = "sparcc"
+                                 measurePar = list(nlambda=10, 
+                                                   rep.num=10),
+                                 
+                                 normMethod = "clr", 
+                                 zeroMethod = "none",
+                                 sparsMethod = "threshold", 
+                                 adjust = "adaptBH",
+                                 thresh = 0.3,
+                                 
+                                 dissFunc = "signed",
+                                 verbose = 2,
+                                 seed = 123456)
+
+
+
+props_genus2 <- netAnalyze(net_season_genus, 
+                          clustMethod = "cluster_fast_greedy")
+
+
+
+
+## Network plots
+
+# Compute layout
+graph4 <- igraph::graph_from_adjacency_matrix(net_season_genus$adjaMat1, 
+                                              weighted = TRUE)
+
+set.seed(42)
+lay_fr2 <- igraph::layout_with_fr(graph4)
+
+# Row names of the layout matrix must match the node names
+rownames(lay_fr2) <- rownames(net_season_genus$adjaMat1)
+
+
+
+# Get phyla names
+taxtab <- as(tax_table(amgut_genus_renamed), "matrix")
+phyla <- as.factor(gsub("p__", "", taxtab[, "Rank2"]))
+names(phyla) <- taxtab[, "Rank6"]
+#table(phyla)
+
+# Define phylum colors
+phylcol <- c("cyan", "blue3", "red", "lawngreen", "yellow", "deeppink")
+
+# Colors used in the legend should be equally transparent as in the plot
+phylcol_transp <- colToTransp(phylcol, 60)
+
+pdf("./Netcomi_soil1.wet.pdf", width = 20, height = 12)
+plot(props_genus2,
+     # layout = lay_fr2,
+    layout = "spring",
+
+     shortenLabels = "intelligent",
+     labelLength = 10,
+     labelPattern = c(5, "'", 3, "'", 3),
+     
+     rmSingles = T,
+     
+     # nodeSize = "clr",
+     nodeColor = "feature",
+     cexNodes = 0.8,
+     cexHubs = 1.1,
+     cexHubLabels = 2.5,
+     cexLabels = 2,
+     
+     featVecCol = phyla, 
+     colorVec =  phylcol,
+     posCol = "darkturquoise", 
+     negCol = "orange",
+     
+     title1 = "Network on genus level with sparcc correlations", 
+     showTitle = TRUE,
+     groupNames = c("yes","no"),
+     cexTitle = 2.3) + 
+
+
+
+
+
+
+
+
+
+legend(-1.2, 1.2, cex = 1.5, pt.cex = 2.5, title = "Phylum:", 
+       legend=levels(phyla), col = phylcol_transp, bty = "n", pch = 16) 
+
+legend(0.7, 1.1, cex = 2.2, title = "estimated correlation:",
+       legend = c("+","-"), lty = 1, lwd = 3, col = c("darkturquoise","orange"), 
+       bty = "n", horiz = TRUE)
+dev.off()
+
+```
+
+
+```{r}
+
+
+plot(netprops1, 
+     sameLayout = TRUE, 
+     layoutGroup = "union", 
+     colorVec = col,
+     borderCol = "gray40", 
+     nodeSize = "degree", 
+     cexNodes = 0.9, 
+     nodeSizeSpread = 3, 
+     edgeTranspLow = 80, 
+     edgeTranspHigh = 50,
+     showTitle = TRUE, 
+     cexTitle = 2.8,
+     mar = c(1,1,3,1), 
+     repulsion = 0.9, 
+     labels = FALSE, 
+     rmSingles = "inboth",
+     nodeFilter = "clustMin", 
+     nodeFilterPar = 10, 
+     nodeTransp = 50, 
+     hubTransp = 30)
+
+pdf("./Netcomi_soil1.wet_2.pdf", width = 20, height = 12)
+
+plot(props_genus2,
+     # layout = lay_fr2,
+     # layout = "spring",
+     sameLayout = TRUE, 
+     layoutGroup = "union", 
+     shortenLabels = "intelligent",
+
+     rmSingles = "inboth",
+     
+     # nodeSize = "clr",
+     nodeSize = "degree", 
+     nodeColor = "feature",
+     cexNodes = 0.8,
+     cexHubs = 1.1,
+     cexHubLabels = 2.5,
+     cexLabels = 3,
+     
+     edgeTranspLow = 80, 
+     edgeTranspHigh = 50,
+     
+     featVecCol = phyla, 
+     colorVec =  phylcol,
+     posCol = "darkturquoise", 
+     negCol = "orange",
+     borderCol = "gray40", 
+     
+     title1 = "Network on genus level with sparcc correlations", 
+     showTitle = TRUE,
+     groupNames = c("yes","no"),
+     cexTitle = 2.3)
+
+
+
+legend(-1.2, 1.2, cex = 1.5, pt.cex = 2.5, title = "Phylum:", 
+       legend=levels(phyla), col = phylcol_transp, bty = "n", pch = 16) 
+
+legend(0.7, 1.1, cex = 2.2, title = "estimated correlation:",
+       legend = c("+","-"), lty = 1, lwd = 3, col = c("darkturquoise","orange"), 
+       bty = "n", horiz = TRUE)
+dev.off()
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# +) Moving picture data
+
+### Netcomi
+
+#### Two group 
+```{r}
+
+
+library(phyloseq)
+
+
+# import data
+ps <- readRDS("./ps.rds")
+ps.pt <- ps %>% subset_samples(body.site %in% c("left palm", "tongue")) # 770 taxa and 17 samples 
+
+
+ps.f = prune_samples(sample_sums(ps.pt)>0, ps.pt) 
+ps.f = prune_taxa(rowSums(otu_table(ps.f)) > 0, ps.f)  #  431 taxa and 17 samples
+
+# Agglomerate to genus level
+ps_genus <- tax_glom(ps.f, taxrank = "Genus")
+
+# Taxonomic table
+taxtab <- as(tax_table(ps_genus), "matrix")
+
+# Rename taxonomic table and make Rank6 (genus) unique
+ps_genus_renamed <- NetCoMi::renameTaxa(ps_genus,
+                                        pat = "<name>",
+                                        substPat = "<name>_<subst_name>(<subst_R>)",
+                                        numDupli = "Genus")
+
+
+ps_genus_renamed_palm <- phyloseq::subset_samples(ps_genus_renamed, 
+                                             body.site == "left palm")
+ps_genus_renamed_tongue <- phyloseq::subset_samples(ps_genus_renamed, 
+                                            body.site == "tongue")
+
+# Network construction and analysis
+ps_genus.sparcc <- netConstruct(data = ps_genus_renamed_palm,
+                         data2 = ps_genus_renamed_tongue,
+                         
+                         filtTax = "highestFreq",
+                         filtTaxPar = list(highestFreq  = 100), # 100개만 고르자
+                         taxRank = "Genus",                     # Genus level 
+                         measure = "sparcc", 
+                         measurePar = list(nlambda=20, rep.num=10),
+                         
+                         normMethod = "clr", 
+                         zeroMethod = "none",
+                         sparsMethod = "threshold", 
+                         adjust = "adaptBH",
+                         thresh = 0.3,
+                         
+                         dissFunc = "signed",
+                         verbose = 2,
+                         seed = 42)
+
+
+
+ps_props_sparcc <- netAnalyze(ps_genus.sparcc,
+                              clustMethod = "cluster_fast_greedy",
+                              hubPar = "eigenvector",
+                              normDeg = FALSE)
+
+
+summary(ps_props_sparcc, groupNames = c("left palm", "tongue"))
+
+
+
+# 
+# Component sizes
+# # ```````````````
+# left palm:        
+# size: 61
+#    #:  1
+# tongue:           
+# size: 33  1
+#    #:  1 28
+# ______________________________
+# Global network properties
+# `````````````````````````
+# Largest connected component (LCC):
+#                          left palm   tongue
+# Relative LCC size          1.00000  0.54098
+# Clustering coefficient     0.65197  0.57913
+# Modularity                 0.12369  0.12694
+# Positive edge percentage  49.54338 59.89583
+# Edge density               0.47869  0.36364
+# Natural connectivity       0.12729  0.10811
+# Vertex connectivity       10.00000  2.00000
+# Edge connectivity         10.00000  2.00000
+# Average dissimilarity*     0.84269  0.86923
+# Average path length**      1.04898  1.13962
+# 
+# Whole network:
+#                          left palm   tongue
+# Number of components       1.00000 29.00000
+# Clustering coefficient     0.65197  0.57913
+# Modularity                 0.12369  0.12694
+# Positive edge percentage  49.54338 59.89583
+# Edge density               0.47869  0.10492
+# Natural connectivity       0.12729  0.04686
+# -----
+# *: Dissimilarity = 1 - edge weight
+# **: Path length = Units with average dissimilarity
+# 
+# ______________________________
+# Clusters
+# - In the whole network
+# - Algorithm: cluster_fast_greedy
+# ```````````````````````````````` 
+# left palm:              
+# name:  1  2  3
+#    #: 19 23 19
+# 
+# tongue:                 
+# name:  0  1  2  3
+#    #: 28 10 13 10
+# 
+# ______________________________
+# Hubs
+# - In alphabetical/numerical order
+# - Based on empirical quantiles of centralities
+# ```````````````````````````````````````````````
+#      left palm                       tongue
+#  Fusobacterium                Campylobacter
+#   Leptotrichia                 Leptotrichia
+#   Oribacterium Unclassified Lachnospiraceae
+# 
+# ______________________________
+# Centrality measures
+# - In decreasing order
+# - Centrality of disconnected components is zero
+# ````````````````````````````````````````````````
+# Degree (unnormalized):
+#                            left palm tongue
+#  Unclassified Streptophyta        47     10
+#               Leptotrichia        47     20
+#                Bacteroides        46     10
+#      Unclassified Bacteria        46      0
+#              Fusobacterium        45     15
+#                               ______ ______
+#               Leptotrichia        47     20
+#              Campylobacter        36     20
+#               Oribacterium        39     20
+#                Haemophilus        24     18
+#               [Prevotella]        10     18
+# 
+# Betweenness centrality (normalized):
+#                            left palm  tongue
+#              Fusobacterium   0.05085 0.02419
+#               Leptotrichia   0.04181  0.0504
+#                Bacteroides   0.02881 0.01008
+#  Unclassified Streptophyta   0.02825 0.00403
+#                 Parvimonas   0.02825       0
+#                               ______  ______
+#               Oribacterium   0.02316 0.14516
+#                Haemophilus   0.00226 0.08468
+#               [Prevotella]   0.00282 0.05645
+#                     Rothia   0.00734 0.05444
+#               Leptotrichia   0.04181  0.0504
+# 
+# Closeness centrality (normalized):
+#                               left palm  tongue
+#                 Fusobacterium   1.34753 1.20688
+#                     Neisseria    1.3215 1.14746
+#                   Haemophilus   1.31325 1.21906
+#         Unclassified Bacteria   1.28898       0
+#                  Leptotrichia    1.2852 1.33367
+#                                  ______  ______
+#                  [Prevotella]   0.82772 1.34515
+#                  Leptotrichia    1.2852 1.33367
+#  Unclassified Lachnospiraceae   1.10444 1.28345
+#                 Campylobacter   1.15364 1.27294
+#                   Veillonella   1.11835 1.24568
+# 
+# Eigenvector centrality (normalized):
+#                               left palm  tongue
+#                 Fusobacterium         1 0.84707
+#                  Leptotrichia   0.99148       1
+#                  Oribacterium    0.8844 0.79039
+#         Unclassified Bacteria   0.86111       0
+#     Unclassified Streptophyta    0.8609 0.21985
+#                                  ______  ______
+#                  Leptotrichia   0.99148       1
+#  Unclassified Lachnospiraceae   0.61801 0.91662
+#                 Campylobacter   0.80563 0.89528
+#                 Fusobacterium         1 0.84707
+#                  [Prevotella]   0.13195 0.83545
+
+
+
+```
+
+
+                 
+
+```{r}
+
+
+
+# Compute layout
+ps_graph <- igraph::graph_from_adjacency_matrix(ps_genus.sparcc$adjaMat1,
+                                                weighted = TRUE)
+
+set.seed(42)
+ps_lay_fr <- igraph::layout_with_fr(ps_graph)
+
+# Row names of the layout matrix must match the node names
+rownames(ps_lay_fr) <- rownames(ps_genus.sparcc$adjaMat1)
+
+
+
+# Get phyla names
+taxtab <- as(tax_table(ps_genus_renamed), "matrix")
+phyla <- as.factor(taxtab[, "Phylum"])
+names(phyla) <- taxtab[, "Genus"]
+table(phyla)
+
+# Define phylum colors
+library(RColorBrewer)
+phylcol <- c(brewer.pal(12, "Paired"), brewer.pal(12, "Set3"))
+
+# Colors used in the legend should be equally transparent as in the plot
+phylcol_transp <- colToTransp(phylcol, 60)
+
+
+
+pdf("./Netcomi_ps_05.pdf", width = 20, height = 12)
+
+# plot(ps_props_sparcc,
+#      layout = ps_lay_fr,
+#      # layout = "spring",
+#      nodeSize = "eigenvector",  # "clr",
+#      nodeColor = "cluster", #"feature",
+#      rmSingles = T, 
+#      cexNodes = 0.8,
+#      cexHubs = 1.1, 
+#      featVecCol = phyla, 
+#      colorVec =  phylcol,
+#      posCol = "darkturquoise", 
+#      negCol = "orange",
+#      title1 = "Network on genus level with sparcc correlations", 
+#      showTitle = TRUE,
+#      groupNames = c("left palm","tongue")) 
+  
+
+
+plot(ps_props_sparcc,
+     layout = "spring",
+     nodeSize = "eigenvector",  # "clr",
+     nodeColor = "cluster", #"feature",
+     rmSingles = T, 
+     cexNodes = 0.8,
+     cexHubs = 1.1, 
+     featVecCol = phyla, 
+     colorVec =  phylcol,
+     posCol = "darkturquoise", 
+     negCol = "orange",
+     title1 = "Network on genus level with sparcc correlations", 
+     showTitle = TRUE,
+     groupNames = c("left palm","tongue")) 
+  
+
+
+legend(-1.2, 1.0, cex = 1.5, pt.cex = 2.5, title = "Phylum:", 
+       legend=levels(phyla), col = phylcol_transp, bty = "n", pch = 16) 
+
+legend(0.7, 1.0, cex = 2.2, title = "estimated correlation:",
+       legend = c("+","-"), lty = 1, lwd = 3, col = c("darkturquoise","orange"), 
+       bty = "n", horiz = TRUE)
+dev.off()
+
+```
+
+
+```{r}
+
+
+plot(ps_props_genus, 
+     sameLayout = TRUE, 
+     layoutGroup = "union", 
+     colorVec = col,
+     borderCol = "gray40", 
+     nodeSize = "degree", 
+     cexNodes = 0.9, 
+     nodeSizeSpread = 3, 
+     edgeTranspLow = 80, 
+     edgeTranspHigh = 50,
+     showTitle = TRUE, 
+     cexTitle = 2.8,
+     mar = c(1,1,3,1), 
+     repulsion = 0.9, 
+     labels = FALSE, 
+     rmSingles = "inboth",
+     nodeFilter = "clustMin", 
+     nodeFilterPar = 10, 
+     nodeTransp = 50, 
+     hubTransp = 30)
+
+
+
+pdf("./Netcomi_ps_02.pdf", width = 20, height = 12)
+
+plot(ps_props_genus,
+     # layout = lay_fr2,
+     layout = "spring",
+     sameLayout = TRUE, 
+     layoutGroup = "union", 
+     # shortenLabels = "intelligent",
+
+     rmSingles = "inboth",
+     
+     # nodeSize = "clr",
+     nodeSize = "degree", 
+     nodeColor = "feature",
+     cexNodes = 0.8,
+     cexHubs = 1.1,
+     cexHubLabels = 2.5,
+     cexLabels = 3,
+     
+     edgeTranspLow = 80, 
+     edgeTranspHigh = 50,
+     
+     featVecCol = phyla, 
+     colorVec =  phylcol,
+     posCol = "darkturquoise", 
+     negCol = "orange",
+     borderCol = "gray40", 
+     
+     title1 = "Network on genus level with sparcc correlations", 
+     showTitle = TRUE,
+     groupNames = c("yes","no"),
+     cexTitle = 2.3)
+
+
+
+legend(-0.7, 1.2, cex = 1.5, pt.cex = 2.5, title = "Phylum:", 
+       legend=levels(phyla), col = phylcol_transp, bty = "n", pch = 16) 
+
+legend(0.7, 1.1, cex = 2.2, title = "estimated correlation:",
+       legend = c("+","-"), lty = 1, lwd = 3, col = c("darkturquoise","orange"), 
+       bty = "n", horiz = TRUE)
+dev.off()
+
+
+```
+
+##### cacluation 
+```{r}
+
+# ps_genus <- netConstruct(data = ps_genus_renamed_palm,
+#                                  data2 = ps_genus_renamed_tongue,  
+#                                  
+#                                  filtTax = "none",
+#                                  taxRank = "Genus", 
+#                                  measure = "sparcc", 
+#                                  measurePar = list(nlambda=20, 
+#                                                    rep.num=10),
+#                                  
+#                                  normMethod = "clr", 
+#                                  zeroMethod = "none",
+#                                  sparsMethod = "threshold", 
+#                                  adjust = "adaptBH",
+#                                  thresh = 0.3,
+#                                  
+#                                  dissFunc = "signed",
+#                                  verbose = 2,
+#                                  seed = 123456)
+# 
+# 
+# ps_genus <- ps_genus
+# ps_props_genus <- netAnalyze(ps_genus,
+#                              clustMethod = "cluster_fast_greedy")
+# 
+# 
+# 
+# 
+# ## Network plots
+# 
+# # Compute layout
+# ps_graph <- igraph::graph_from_adjacency_matrix(ps_genus$adjaMat1,
+#                                                 weighted = TRUE)
+# 
+# set.seed(42)
+# ps_lay_fr <- igraph::layout_with_fr(ps_graph)
+# 
+
+get_centr <- function(graph_obj) {
+  df <- data.frame(Degree = igraph::degree(graph_obj))
+  df$Betweenness <- betweenness(graph_obj)
+  df$Closeness <- closeness(graph_obj, normalized = TRUE)
+  df$Eigenvector <- eigen_centrality(graph_obj)$vector
+  return(df)
+}
+
+centr_df <- get_centr(ps_graph)
+
+
+#                                     Degree Betweenness Closeness  Eigenvector
+# Unclassified Unassigned                  2           0       NaN 5.852964e-18
+# Candidatus Nitrososphaera                2           0       NaN 1.170593e-17
+# Unclassified Streptophyta              192        3520  4.851149 7.869945e-01
+# Unclassified Nostocaceae                 2           0       NaN 1.755889e-17
+# Chloroidium                             30           0  2.205340 1.344879e-01
+# Unclassified Chlorophyta                30           0  2.592168 5.299574e-02
+# Mycoplasma                             110           8  3.342662 5.033118e-01
+# Truepera                                 2           0       NaN 5.852964e-18
+# Deinococcus                             84           0  2.950102 2.703224e-01
+# Unclassified SR1                       104           0  3.292860 4.596831e-01
+# Megamonas                              118          32  3.715463 5.113283e-01
+# Selenomonas                            126           0  3.753870 8.473097e-01
+# Schwartzia                             116           0  3.480617 8.019150e-01
+# Unclassified Veillonellaceae           132           0  3.561882 8.409322e-01
+# Megasphaera                            120           0  3.441312 7.869895e-01
+# Veillonella                            140        1310  4.300176 6.314705e-01
+# Dialister                              118           0  3.572694 8.028545e-01
+
+```
+
+```{r}
+get_vsizes <- function(centr_df) {
+  df <- as.matrix(centr_df)
+  df[, "Betweenness"] <- log(df[, "Betweenness"])
+  df[, "Closeness"] <- df[, "Closeness"] * 10
+  df[, "Eigenvector"] <- df[, "Eigenvector"] * 10
+  df[is.infinite(df) | is.na(df)] <- 0
+  return(df)
+}
+
+vsize_df <- get_vsizes(centr_df )
+head(vsize_df)
+
+
+
+par(mfrow = c(2,2))
+for (i in seq_along(centr_df)) {
+  plot(ps_graph, layout = ps_lay_fr, vertex.size = vsize_df[, i], 
+     vertex.label = NA, main = colnames(centr_df)[i])
+}
+```
+
+#### One group
+##### Distance based 
+```{r}
+
+
+library(phyloseq)
+ps <- readRDS("./ps.rds")
+ps.rel <- transform_sample_counts(ps, function(x) x/sum(x))
+
+# PT <- ps %>% subset_samples(body.site %in% c("gut", "tongue"))
+
+ps.rel.01 <-filter_taxa(ps.rel, function(x) mean(x) > .001, TRUE) # 126 taxa
+
+distance_based <- make_network(ps.rel.01, 
+                    type="samples", distance="wunifrac", 
+                    max.dist = 0.4,  keep.isolates=FALSE)
+
+plot_network(distance_based, ps.rel.01, color="body.site", line_weight=0.6)
+
+ggsave("./Network_ps_distance_wu.png", width = 7, height = 5, dpi = 300, 
+       device = png, type = "cairo",  bg = "transparent")
+
+```
+
+distance based 
+```{r}
+
+?make_network
+
+ntaxa(ps.rel.01)
+
+distance_based.taxa <- make_network(ps.rel.01,
+                                    type="taxa", 
+                                    distance="wunifrac",
+                                    max.dist = 0.4,  
+                                    keep.isolates=FALSE)
+
+plot_network(distance_based, ps.rel.01, color="body.site", line_weight=0.6)
+
+ggsave("./Network_ps_distance_wu.png", width = 7, height = 5, dpi = 300, 
+       device = png, type = "cairo",  bg = "transparent")
+
+
+```
+
+##### correlation based 
+```{r}
+library(SpiecEasi)
+library(igraph) 
+
+# ps.rel.1 <-filter_taxa(ps.rel, function(x) mean(x) > .01, TRUE) # 21 taxa
+
+
+# Top 50 _______________________________________________________________________
+ps.rel.bac <- subset_taxa(ps.rel, 
+                            Kingdom == "Bacteria" &
+                            Phylum != "Unclassified Bacteria") # 748 taxa
+myTaxa = names(sort(taxa_sums(ps.rel.bac), decreasing = TRUE)[1:50])
+ps.50 = prune_taxa(myTaxa, ps.rel.bac)
+
+
+mb.50 <- spiec.easi(ps.50, 
+                 method='mb',
+                 lambda.min.ratio=1e-2,
+                 nlambda=20, pulsar.params=list(rep.num=50))
+                                                 
+ig2.mb.50 <- adj2igraph(getRefit(mb.50), 
+                     vertex.attr=list(name=taxa_names(ps.50)))
+
+plot_network(g = ig2.mb.50, 
+             physeq = ps.50, 
+             type='taxa',
+             color="Phylum")
+
+
+# Top 100  _____________________________________________________________________
+
+
+myTaxa100 = names(sort(taxa_sums(ps.rel.bac), decreasing = TRUE)[1:100])
+ps.100 = prune_taxa(myTaxa100, ps.rel.bac)
+
+
+mb.100 <- spiec.easi(ps.100, 
+                 method='mb',
+                 lambda.min.ratio=1e-2,
+                 nlambda=20, pulsar.params=list(rep.num=50))
+                                                 
+ig2.mb.100 <- adj2igraph(getRefit(mb.100), 
+                     vertex.attr=list(name=taxa_names(ps.100)))
+
+plot_network(g = ig2.mb.100, 
+             physeq = ps.100, 
+             type='taxa',
+             color="Phylum")
+
+# gut __________________________________________________________________________
+ps <- readRDS("./ps.rds")
+gut = subset_samples(ps, body.site %in% c("gut"))
+
+gut = prune_taxa(taxa_sums(gut)>0, gut) #  186 taxa and 8 samples
+
+
+mb.gut <- spiec.easi(gut, 
+                 method='mb',
+                 lambda.min.ratio=1e-2,
+                 nlambda=20, pulsar.params=list(rep.num=50))
+                                                 
+ig2.mb.gut <- adj2igraph(getRefit(mb.gut), 
+                     vertex.attr=list(name=taxa_names(gut)))
+
+plot_network(g = ig2.mb.gut, 
+             physeq = gut, 
+             type='taxa',
+             color="Phylum", label = "Genus", 
+             point_size=5,
+             layout.method=layout.fruchterman.reingold,
+             title="Gut network plot")
+
+
+# gut2 __________________________________________________________________________
+# Define phylum colors
+phylcol <- c("cyan", "blue3", "red", "lawngreen", "yellow", "deeppink")
+
+
+ps <- readRDS("./ps.rds")
+# ps.rel <- transform_sample_counts(ps, function(x) x/sum(x))
+gut = subset_samples(ps, body.site %in% c("gut"))
+
+myTaxa100 = names(sort(taxa_sums(gut), decreasing = TRUE)[1:100])
+gut.1 = prune_taxa(myTaxa100, gut)
+
+# gut.1 <-filter_taxa(gut, function(x) mean(x) > .001, TRUE) # 87 taxa # >0.1%
+
+
+# Agglomerate to genus level
+gut_genus <- tax_glom(gut.1, taxrank = "Genus")
+
+# Taxonomic table
+taxtab <- as(tax_table(gut_genus), "matrix")
+
+# Rename taxonomic table and make Rank6 (genus) unique
+gut_genus_renamed <- NetCoMi::renameTaxa(gut_genus,
+                                         pat = "<name>",
+                                         substPat = "<name>_<subst_name>(<subst_R>)",
+                                         numDupli = "Genus")
+
+# Network construction and analysis
+net_genus <- netConstruct( gut_genus_renamed,
+                          taxRank = "Genus", ###### 
+                          measure = "spearman",
+                          zeroMethod = "multRepl",
+                          # normMethod = "clr",
+                          sparsMethod = "threshold",
+                          thresh = 0.3,
+                          verbose = 3)
+
+props_genus <- netAnalyze(net_genus, clustMethod = "cluster_fast_greedy")
+
+plotHeat(mat = props_genus$graphletLCC$gcm1,
+         pmat = props_genus$graphletLCC$pAdjust1,
+         type = "mixed",
+         title = "GCM", 
+         colorLim = c(-1, 1),
+         mar = c(2, 0, 2, 0))
+
+
+summary(props_genus, numbNodes = 5L)
+# Component sizes
+# 
+# size: 36
+#    #:  1
+# ______________________________
+# Global network properties
+# `
+# Whole network:
+#                                  
+# Number of components      1.00000
+# Clustering coefficient    0.69085
+# Modularity                0.02265
+# Positive edge percentage 44.10256
+# Edge density              0.61905
+# Natural connectivity      0.16586
+# Vertex connectivity      11.00000
+# Edge connectivity        11.00000
+# Average dissimilarity*    0.80056
+# Average path length**     0.98561
+# -----
+# *: Dissimilarity = 1 - edge weight
+# **: Path length = Units with average dissimilarity
+# 
+# ______________________________
+# Clusters
+# - In the whole network
+# - Algorithm: cluster_fast_greedy
+# `
+#              
+# name: 1  2  3
+#    #: 8 16 12
+# 
+# ______________________________
+# Hubs
+# - In alphabetical/numerical order
+# - Based on empirical quantiles of centralities
+# `                
+#  Odoribacter    
+#  Parabacteroides
+# 
+# ______________________________
+# Centrality measures
+# - In decreasing order
+# - Computed for the complete network
+# `
+# Degree (normalized):
+#                                   
+# Odoribacter                0.82857
+# Parabacteroides            0.82857
+# Gemmiger                   0.80000
+# Butyricimonas              0.80000
+# Unclassified Bacteroidales 0.80000
+# 
+# Betweenness centrality (normalized):
+#                                     
+# Unclassified Lachnospiraceae 0.03193
+# Blautia                      0.02773
+# Phascolarctobacterium        0.02689
+# Clostridium2                 0.02521
+# Dorea                        0.02353
+# 
+# Closeness centrality (normalized):
+#                        
+# Odoribacter     2.01091
+# Butyricimonas   1.87396
+# Parabacteroides 1.85956
+# Alistipes       1.65083
+# Gemmiger        1.64085
+# 
+# Eigenvector centrality (normalized):
+#                                   
+# Parabacteroides            1.00000
+# Odoribacter                0.98163
+# Unclassified Bacteroidales 0.97918
+# Gemmiger                   0.97918
+# Alistipes                  0.96318
+```
+
+
+```{r}
+## Network plots
+
+# Compute layout
+graph3 <- igraph::graph_from_adjacency_matrix(net_genus$adjaMat1, 
+                                              weighted = TRUE)
+
+set.seed(42)
+lay_fr <- igraph::layout_with_fr(graph3)
+
+# Row names of the layout matrix must match the node names
+rownames(lay_fr) <- rownames(net_genus$adjaMat1)
+
+
+plot(props_genus,
+     layout = lay_fr,
+     # shortenLabels = "intelligent",
+     labelLength = 10,
+     # labelPattern = c(5, "'", 3, "'", 3),
+     # nodeSize = "fix",
+     # nodeColor = "feature", 
+     cexNodes = 0.8,
+     cexHubs = 1.1,
+     colorVec =  phylcol,
+     posCol = "darkturquoise", 
+     negCol = "orange",
+     cexLabels = 2,
+     title1 = "Network on genus level with Spearman correlations", 
+     showTitle = TRUE,
+     cexTitle = 2.3)
+
+
+plot(props_genus,
+     layout = lay_fr,
+     labelLength = 10,
+     cexNodes = 0.8,
+     cexHubs = 1.1,
+     colorVec =  phylcol,
+     posCol = "darkturquoise", 
+     negCol = "orange",
+     cexLabels = 2,
+     title1 = "Network on genus level with Spearman correlations", 
+     showTitle = TRUE,
+     cexTitle = 2.3)
+
+ggsave("./Network_ps_spearman_1.png", width = 7, height = 5, dpi = 300, 
+       device = png, type = "cairo",  bg = "transparent")
+
+# Get phyla names
+taxtab <- as(tax_table(gut_genus_renamed), "matrix")
+phyla <- as.factor(gsub("p__", "", taxtab[, "Phylum"]))
+names(phyla) <- taxtab[, "Phylum"]
+
+
+plot(props_genus,
+     layout = lay_fr,
+     labelLength = 10,
+     cexNodes = 0.8,
+     cexHubs = 1.1,
+     colorVec =  phylcol,
+     posCol = "darkturquoise", 
+     negCol = "orange",
+     cexLabels = 2,
+     title1 = "Network on genus level with Spearman correlations", 
+     showTitle = TRUE,
+     cexTitle = 2.3)
+
+
+phylcol_transp <- colToTransp(phylcol, 60)
+
+legend(-1.1, 1.1, cex = 1, pt.cex = 1, title = "Phylum:", 
+       legend=levels(phyla), col = phylcol_transp, bty = "n", pch = 16) 
+
+
+legend(0.4, 1.1, cex = 1, title = "estimated correlation:",
+       legend = c("+","-"), lty = 1, lwd = 3, col = c("darkturquoise","orange"), 
+       bty = "n", horiz = TRUE)
+
+
+
+plot(props_genus,
+     layout = lay_fr,
+     labelLength = 2,
+     cexNodes = 2,
+     cexHubs = 1,
+     colorVec =  phylcol,
+     posCol = "darkturquoise", 
+     negCol = "orange",
+     cexLabels = 2,
+     title1 = "Network on genus level with Spearman correlations", 
+     showTitle = TRUE,
+     cexTitle = 2.3)
+
+
+```
+
+### ggClusterNet
+```{r}
+
+
+p_list = c("ggplot2", "BiocManager", "devtools", "igraph", "network", "sna", "tidyverse","tidyfst","ggnewscale")
+for(p in p_list){if (!requireNamespace(p)){install.packages(p)}
+    library(p, character.only = TRUE, quietly = TRUE, warn.conflicts = FALSE)}
+ 
+# 基于Bioconductor安装R包
+p_list = c("phyloseq", "WGCNA")
+for(p in p_list){if (!requireNamespace(p, quietly = TRUE)){BiocManager::install(p)}}
+ 
+# 基于github安装，检测没有则安装
+library(devtools)
+if (!requireNamespace("ggClusterNet", quietly = TRUE))
+  remotes::install_github("taowenmicro/ggClusterNet")
+
+```
+
+
+```{r}
+
+
+library(phyloseq)
+library(igraph)
+library(network)
+library(sna)
+library(tidyverse)
+library(ggClusterNet)
+
+```
+
+```{r}
+
+
+
+```
+
+```{r}
+
+
+
+```
+
+```{r}
+
+
+
+```
+

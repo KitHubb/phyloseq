@@ -1,0 +1,209 @@
+---
+title: "2023_05_16_regression"
+author: "kim soyeon"
+date: "2023-05-16"
+output: html_document
+---
+# my
+
+참고
+1. chatGTP
+2. https://ayeimanol-r.net/2013/04/22/getting-started-drawing-a-scatterplot-with-a-linear-regression-smoother-edited-title-label-and-theme-for-report/
+3. https://www.nature.com/articles/s41598-022-06189-5
+4. https://stackoverflow.com/questions/61266084/can-we-neatly-align-the-regression-equation-and-r2-and-p-value
+
+Regression plot with a significant Pearsoncorrelation
+
+```{r}
+
+reg_plot <- function(df, x = x, y = y,  Ylab = NULL, Xlab = NULL, Title = NULL, label_pos = "right") {
+  ggplot(df, aes_string(x, y)) +
+    geom_point() +
+    stat_smooth(color = "blue", method="lm") + 
+    stat_poly_eq(formula = as.formula(y ~ x),
+                 label.x = "centre",
+                 eq.with.lhs = "italic(hat(y))~`=`~",
+                 aes(label = paste(..eq.label.., sep = "~~~")), 
+                 color= "red",
+                 parse = TRUE)+
+    stat_fit_glance(method = 'lm',
+                    method.args = list(formula = y ~ x),
+                    label.x = label_pos, 
+                    aes(label = paste("~italic(p) ==", round(..p.value.., digits = 3),
+                                      "~italic(R)^2 ==", round(..r.squared.., digits = 2),
+                                      sep = "~")),
+                    color= "red",
+                    parse=TRUE)+
+    theme_minimal() +
+    labs(title = Title, y = Ylab, x = Xlab)
+}
+```
+
+## 1. 하나의 taxa와 metadata비교 + R값 P값 추가 VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV
+```{r}
+
+library(phyloseq)
+library(ggplot2)
+library(dplyr)
+# install.packages("ggpmisc")
+library(ggpmisc)
+
+
+ps <- readRDS("./ps.rds") 
+# phyloseq-class experiment-level object
+# otu_table()   OTU Table:         [ 770 taxa and 34 samples ]
+# sample_data() Sample Data:       [ 34 samples by 8 sample variables ]
+# tax_table()   Taxonomy Table:    [ 770 taxa by 7 taxonomic ranks ]
+# phy_tree()    Phylogenetic Tree: [ 770 tips and 768 internal nodes ]
+
+ps.rel <- transform_sample_counts(ps, function(x) x/sum(x) )
+
+
+otu <- as.data.frame(otu_table(ps.rel))
+otu <- otu %>% mutate(Sum = rowSums(.))
+otu %>% arrange(-Sum)
+
+otu_table <- as.data.frame(t(otu_table(ps.rel)))
+metadata <- as.data.frame(sample_data(ps.rel))
+# tax <- as.data.frame(tax_table(ps.rel)) 
+# tax["d29fe3c70564fc0f69f2c03e0d1e5561", "Species"]
+
+
+otu_meta <- merge(otu_table, metadata, by = "row.names")
+
+reg_plot(otu_meta, "days.since.experiment.start", "d29fe3c70564fc0f69f2c03e0d1e5561", 
+         Ylab = "OTU", Xlab = "Time", Title = "Regression plot 03")
+
+
+```
+
+
+
+## 2. alpha diversity와 metadata비교 VVVVVVVVVVVVVVVVVVVVVVVVVVVVV
+```{r}
+
+
+alpha_div <- estimate_richness(ps.rel, measures = "Shannon")
+alpha_meta <- merge(sample_data(ps.rel), alpha_div, by = "row.names")
+
+
+reg_plot(alpha_meta, "days.since.experiment.start", "Shannon", 
+         Ylab = "Alpha diversity", Xlab = "Time", Title = "Regression plot 02")
+
+
+```
+
+
+## 3. metadata 간의 비교 VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV
+```{r}
+meta2 <- sample_data(ps.rel) %>% as.data.frame()
+meta2$Random <- sample(1:300, 34)
+
+reg_plot(meta2, "days.since.experiment.start", "Random", 
+         Ylab = "Random data", Xlab = "Time", Title = "Regression plot 04")
+
+
+```
+
+## 4. 각 taxa간 비교 VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV 
+```{r}
+
+
+otu <- as.data.frame(t(otu_table(ps.rel)))
+
+
+x <- "3c9c437f27aca05f8db167cd080ff1ec" # "Prevotella melaninogenica"
+y <- "1d2e5f3444ca750c85302ceee2473331"  # Haemophilus parainfluenzae
+
+otu[, "3c9c437f27aca05f8db167cd080ff1ec"]
+reg_plot(otu, 
+         x = "`3c9c437f27aca05f8db167cd080ff1ec`",  # "Prevotella melaninogenica
+         y = "`1d2e5f3444ca750c85302ceee2473331`",  # Haemophilus parainfluenzae
+         Ylab = "OTU1", Xlab = "OTU2", Title = "Regression plot 05")
+
+  ggplot(otu, aes_string("`3c9c437f27aca05f8db167cd080ff1ec`", "`1d2e5f3444ca750c85302ceee2473331`")) +
+    geom_point() +
+    stat_smooth(color = "blue", method="lm") + 
+    stat_poly_eq(formula = as.formula(y ~ x),
+                 label.x = "centre",
+                 eq.with.lhs = "italic(hat(y))~`=`~",
+                 aes(label = paste(..eq.label.., sep = "~~~")), 
+                 color= "red",
+                 parse = TRUE)+
+    stat_fit_glance(method = 'lm',
+                    method.args = list(formula = y ~ x),
+                    label.x = label_pos, 
+                    aes(label = paste("~italic(p) ==", round(..p.value.., digits = 3),
+                                      "~italic(R)^2 ==", round(..r.squared.., digits = 2),
+                                      sep = "~")),
+                    color= "red",
+                    parse=TRUE)+
+    theme_minimal() +
+    labs(title = Title, y = Ylab, x = Xlab)
+}
+
+```
+
+
+## 5. read 수 ~diversity VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV
+```{r}
+
+
+alpha_div <- estimate_richness(ps.rel, measures = "Shannon")
+otu <- otu_table(ps) %>% t() %>% as.data.frame() %>% 
+  mutate(Sample_read = rowSums(.))
+alpha_read <- merge(otu, alpha_div, by = "row.names")
+
+
+# reg_plot(alpha_read, "Sample_read", "Shannon")
+
+?lm
+model <- lm(Sample_read~Shannon, alpha_read)
+# Call:
+# lm(formula = Sample_read ~ Shannon, data = alpha_read)
+# 
+# Coefficients:
+# (Intercept)      Shannon  
+#        1459         1035  
+
+summary(model)$coefficients[2,4]  # p-value
+  # 0.202146
+summary(model)$r.squared # R squared 
+  # 0.05032406
+
+x <- alpha_read$Sample_read
+y <- alpha_read$Shannon
+
+a <-cor.test(x,y)
+a
+  # p-value = 0.2021
+
+a$p.value # 0.202146
+a
+cor.test(x,y, method = "spearman")
+  # p-value = 0.1744
+
+
+
+ggplot(alpha_read, aes(Sample_read, Shannon)) +
+    geom_point() +
+    stat_smooth(color = "blue", method="lm") + 
+    stat_poly_eq(formula = as.formula(y ~ x),
+                 label.x = "centre",
+                 eq.with.lhs = "italic(hat(y))~`=`~",
+                 aes(label = paste(..eq.label.., sep = "~~~")), 
+                 color= "red",
+                 parse = TRUE)+
+    stat_fit_glance(method = 'lm',
+                    method.args = list(formula = y ~ x),
+                    label.x = label_pos, 
+                    aes(label = paste("~italic(p) ==", round(..p.value.., digits = 3),
+                                      "~italic(R)^2 ==", round(..r.squared.., digits = 2),
+                                      sep = "~")),
+                    color= "red",
+                    parse=TRUE)+
+    theme_minimal() +
+    labs(title = "Regression plot ", y = "shannon", x = "Read Number")
+
+
+```

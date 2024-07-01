@@ -1,0 +1,405 @@
+---
+title: "phyloseeq_picrust"
+author: "kim soyeon"
+date: "2023-04-14"
+output: html_document
+---
+
+## 1, input 파일
+- 서열은 qiime파일이라 따로 다운 
+- otu만 구한다
+```{r}
+
+library(phyloseq)
+library(ampir)
+library(tidyverse)
+
+ps <- readRDS("./ps.rds") ###################################################
+otu <- otu_table(ps)%>%   as.data.frame()
+otu2 <- data.frame(
+  rownames(otu),
+  otu 
+)
+colnames(otu2)[1] <- "# OTU ID"
+rownames(otu2) <- NULL
+names(otu2) <- sub("^X", "", names(otu2))
+
+write.table(otu2, "./otu_for_picrust.txt", sep = "\t", quote = F, 
+            row.names = F)
+
+```
+
+## PICRUSt돌리고 
+```{r}
+
+
+```
+# ggpicrust
+## downstream analysis
+```{r}
+
+library(readr)
+library(ggpicrust2)
+library(tibble)
+library(tidyverse)
+library(ggprism)
+library(patchwork)
+library(GGally)
+
+
+```
+
+
+```{r}
+kegg_abundance <-
+  ko2kegg_abundance(
+    "./picrust_result/KO_metagenome_out/pred_metagenome_unstrat.tsv"
+  )
+kegg_abundance
+
+```
+
+```{r}
+ps_sub <- subset_samples(ps, body.site %in% c("gut", "tongue"))
+# phyloseq-class experiment-level object
+# otu_table()   OTU Table:         [ 770 taxa and 17 samples ]
+# sample_data() Sample Data:       [ 17 samples by 8 sample variables ]
+# tax_table()   Taxonomy Table:    [ 770 taxa by 7 taxonomic ranks ]
+# phy_tree()    Phylogenetic Tree: [ 770 tips and 768 internal nodes ]
+
+
+
+
+
+meta <- sample_data(ps_sub) %>% data.frame() 
+
+write.table(meta, "./meta.tsv", sep = '\t', row.names = T, append = F, col.name = NA)
+
+metadata <-
+  read_delim(
+    "./meta.tsv",
+    delim = "\t",
+    escape_double = FALSE,
+    trim_ws = TRUE
+  )
+metadata
+
+# # A tibble: 34 × 9
+#    ...1   barcode.sequence body.site  year month   day subject   reported.antibiotic.usage days.since.experiment…¹
+#    <chr>  <chr>            <chr>     <dbl> <dbl> <dbl> <chr>     <chr>                                       <dbl>
+#  1 L1S105 AGTGCGATGCGT     gut        2009     3    17 subject-1 No                                            140
+#  2 L1S140 ATGGCAGCTCTA     gut        2008    10    28 subject-2 Yes                                             0
+#  3 L1S208 CTGAGATACGCG     gut        2009     1    20 subject-2 No                                             84
+#  4 L1S257 CCGACTGAGATG     gut        2009     3    17 subject-2 No                                            140
+#  5 L1S281 CCTCTCGTGATC     gut        2009     4    14 subject-2 No                                            168
+#  6 L1S57  ACACACTATGGC     gut        2009     1    20 subject-1 No                                             84
+#  7 L1S76  ACTACGTGTGGT     gut        2009     2    17 subject-1 No                                            112
+#  8 L1S8   AGCTGACTAGTC     gut        2008    10    28 subject-1 Yes                                             0
+#  9 L2S155 ACGATGCGACCA     left palm  2009     1    20 subject-1 No                                             84
+# 10 L2S175 AGCTATCCACGA     left palm  2009     2    17 subject-1 No                                            112
+# # ℹ 24 more rows
+# # ℹ abbreviated name: ¹​days.since.experiment.start
+# # ℹ Use `print(n = ...)` to see more rows
+
+colnames(metadata)[1] <- "SampleID"
+
+metadata <- metadata[metadata$body.site %in% c("gut", "tongue"), ]
+
+kegg_abundance2 <- kegg_abundance[, metadata$SampleID]
+dim(kegg_abundance2)
+```
+
+
+```{r}
+
+# pathway_daa() ________________________________________________________________
+str(meta)
+ko_LinDA <-
+  pathway_daa(
+    abundance = kegg_abundance2,
+    metadata = metadata,
+    group = "body.site", 
+    daa_method = "LinDA",
+    select = NULL,
+    reference = NULL
+  )
+
+ko_LinDA
+
+
+ko_AlDEx <-
+  pathway_daa(
+    abundance = kegg_abundance2,
+    metadata = metadata,
+    group = "body.site", 
+    daa_method = "ALDEx2",
+    select = NULL,
+    reference = NULL
+  )
+
+ko_AlDEx %>% head()
+ko_AlDEx
+#   feature                method group1 group2   p_values adj_method   p_adjust
+# 1 ko05340 ALDEx2_Welch's t test    gut tongue 0.00402396         BH 0.01078215
+# 2 ko00564 ALDEx2_Welch's t test    gut tongue 0.17365998         BH 0.26492653
+# 3 ko00680 ALDEx2_Welch's t test    gut tongue 0.03217803         BH 0.06656202
+# 4 ko00562 ALDEx2_Welch's t test    gut tongue 0.67601305         BH 0.75152515
+# 5 ko03030 ALDEx2_Welch's t test    gut tongue 0.06168772         BH 0.10879943
+# 6 ko00561 ALDEx2_Welch's t test    gut tongue 0.02946089         BH 0.06329062
+
+ko_lefser <-
+  pathway_daa(
+    abundance = kegg_abundance2,
+    metadata = metadata,
+    group = "body.site", 
+    daa_method = "lefser",
+    # p.adjust = "BH"
+    
+  )
+?pathway_daa
+
+```
+
+
+pathway_daa
+
+```{r}
+
+ko_AlDEx_df <-   ko_AlDEx[ko_AlDEx$method == "ALDEx2_Wilcoxon rank test", ] 
+ko_annotation <-pathway_annotation(pathway = "KO",
+                                   daa_results_df = ko_AlDEx_df, 
+                                   ko_to_kegg = TRUE)
+
+ko_annotation %>% colnames()
+
+
+ko_annotation
+# 너무 많으면 그림이 그려지지 않는다 -> Top 30만 골라보기  
+Top30 <- ko_annotation %>% arrange(p_adjust) %>% top_n(30)
+kegg_abundance_t30 <- kegg_abundance2[rownames(kegg_abundance2) %in% Top30$feature, ] 
+  
+# install.packages("ggprism")
+  library(ggprism)
+
+# pathway_errorbar _____________________________________________________________
+
+p <- pathway_errorbar(abundance = kegg_abundance_t30,
+         daa_results_df = Top30,
+         Group = metadata$body.site,
+         ko_to_kegg = T,
+         p_values_threshold = 0.05,
+         order = "pathway_class",
+         select = NULL,
+         p_value_bar = T,
+         colors = NULL,
+         x_lab = NULL)
+
+p
+ggsave("./picrust_result/PLOT/ggpicrust2.png", width = 15, height = 10, dpi = 300)
+
+```
+
+
+```{r}
+
+pca_plot <- ggpicrust2::pathway_pca(kegg_abundance_t30, metadata, "body.site")
+pca_plot
+```
+
+
+```{r}
+colnames(metadata)[1] <- "sample_name"
+heatmap_plot <- ggpicrust2::pathway_heatmap(kegg_abundance_t30, metadata, "body.site")
+heatmap_plot
+```
+
+# another example
+- link : https://rstudio-pubs-static.s3.amazonaws.com/566863_687400bd7e8742568e73bf167fc42d3d.html
+```{r}
+ps
+phyloseq_ko <- phyloseq(otu_table(t(kegg_abundance), taxa_are_rows=F), sample_data(ps))
+# phyloseq-class experiment-level object
+# otu_table()   OTU Table:         [ 243 taxa and 34 samples ]
+# sample_data() Sample Data:       [ 34 samples by 8 sample variables ]
+```
+
+
+```{r}
+
+pathway_annotation
+
+ko_annotation
+pathway_table
+
+col_sums <- colSums(kegg_abundance2)
+kegg_abundance2.rl
+```
+
+aldex
+```{r}
+
+abundance = as.matrix(otu_table(pi.oral_read))
+metadata = data.frame(sample_data(pi.oral_read))
+group = "Group"
+daa_method = "ALDEx2"
+select = NULL
+p.adjust = "BH"
+reference = NULL
+
+
+if (!tibble::is_tibble(metadata)) {
+        metadata <- tibble::as_tibble(metadata)
+    }
+    sample_names <- colnames(abundance)
+    matches <- base::lapply(metadata, function(x) {
+        intersect(sample_names, x)
+    })
+    matching_columns <- names(metadata)[sapply(matches, function(x) {
+        length(x) == length(sample_names)
+    })]
+    switch(is.null(select), `TRUE` = {
+        abundance <- abundance
+    }, `FALSE` = {
+        abundance <- abundance[, colnames(abundance) %in% select]
+        metadata <- metadata[as.matrix(metadata[, matching_columns]) %in% 
+            select, ]
+    })
+    
+    
+
+    
+# sample_names <- colnames(abundance)
+# abundance_mat <- as.matrix(abundance)
+# metadata_order <- match(sample_names, as.matrix(metadata[, matching_columns]))
+# metadata <- metadata[metadata_order, ]
+# metadata_mat <- as.matrix(metadata)
+# metadata_df <- as.data.frame(metadata)
+Group <- factor(metadata$body.site)
+Level <- levels(Group)
+
+ALDEx2_object <- ALDEx2::aldex.clr(round(kegg_abundance2),
+                                   metadata$body.site)
+ALDEx2_results <- ALDEx2::aldex.ttest(ALDEx2_object, paired.test = FALSE, verbose = FALSE)
+ALDEx2_effect <- ALDEx2::aldex.effect(ALDEx2_object)
+p_values_df <- data.frame(
+  feature = rep(rownames(ALDEx2_results), 2), 
+  method = c(rep("ALDEx2_Welch's t test", nrow(ALDEx2_results)), 
+             rep("ALDEx2_Wilcoxon rank test", nrow(ALDEx2_results))),
+  group1 = rep(Level[1], 2 * nrow(ALDEx2_results)),
+  group2 = rep(Level[2], 2 * nrow(ALDEx2_results)),
+  p_values = c(ALDEx2_results$we.ep, ALDEx2_results$wi.ep),
+  effect = ALDEx2_effect$effect)
+
+
+adjusted_p_values <- data.frame(
+  feature = p_values_df$feature,
+  p_adjust = p.adjust(p_values_df$p_values, method = "BH"))
+
+
+ko_AlDEx_result <- cbind(p_values_df, p_adjust = adjusted_p_values$p_adjust) 
+ko_AlDEx_result2 <- ko_AlDEx_result[ko_AlDEx_result$method == "ALDEx2_Wilcoxon rank test" &
+                                    ko_AlDEx_result$p_adjust < 0.05, ]
+
+
+ko_ann <-pathway_annotation(pathway = "KO",
+                            daa_results_df = ko_AlDEx_result2, 
+                            ko_to_kegg = TRUE)
+
+ko_ann
+```
+
+## heatmap
+```{r}
+
+
+pathway_table <- ko_ann %>% 
+  na.omit %>% 
+  mutate(Level_123 = paste0(pathway_class," - ", pathway_map))
+rownames(pathway_table) <- pathway_table$feature
+
+kegg_abundance3 <- kegg_abundance2[pathway_table$feature, ]
+
+col_sums <- colSums(kegg_abundance3)
+relative_abundance <- t(t(kegg_abundance3) / col_sums)
+
+
+table <- merge(pathway_table, relative_abundance, by = "row.names") 
+rownames(table) <- table$Level_123
+
+library(pheatmap)
+p <- pheatmap(table[, 14:30])
+p
+```
+
+```{r}
+
+
+
+# annotation ###################################################################
+
+################################## Row ########################################
+annotation_row <- data.frame(
+  row.names  = rownames(table),
+  p_adjust = table$p_adjust,
+  Effect = table$effect
+)
+
+metadata$body.site %>% table
+annotation_row <- annotation_row[order(annotation_row$Effect, decreasing = F), ,
+                                 drop = FALSE # rownames 사라지는걸 막음
+                                 ]
+
+
+
+################################### Column #####################################
+
+
+annotation_col <- data.frame(
+  row.names = metadata$SampleID,
+  Site =  metadata$body.site
+)
+
+annotation_col$Site <- factor(annotation_col$Site , levels = c("gut", "tongue") ) 
+
+annotation_col <- annotation_col[order(annotation_col$Site, decreasing = FALSE), , drop = FALSE  ]
+
+
+
+# annotation_color #############################################################
+ann_colors = list(
+  p_adjust = colorRampPalette(c("white", "green"))(100),
+  Effect = colorRampPalette(c("pink", "white", "skyblue"))(100),
+  Site = c("gut" = "orange","tongue"="purple")
+)
+
+ 
+
+
+# Final ########################################################################
+
+df <- table[, 14:30]
+colnames(df)
+df <- df[rownames(annotation_row), rownames(annotation_col)]
+
+                           
+plot <- pheatmap::pheatmap(mat = as.matrix(df),
+                           color = colorRampPalette(c("blue", "white", "red"))(100),
+                           annotation_col = annotation_col,
+                           annotation_row = annotation_row,
+                           annotation_colors = ann_colors,
+                           scale = "row",
+                           cluster_rows = F,
+                           cluster_cols = F,
+                           gaps_col = 8,
+                           gaps_row = 21,
+                           legend = T,
+                           border_color=NA)
+ggsave(plot = plot, 
+       filename = "./output/picrust_decontam/figure/DESeq2/oral_total_heatmap.png",
+       device = "png",  width = 18, height = 10, dpi = 300)
+
+
+
+```
+
+

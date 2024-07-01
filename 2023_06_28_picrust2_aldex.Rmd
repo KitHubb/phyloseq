@@ -1,0 +1,164 @@
+---
+title: ''
+author: "kim soyeon"
+date: "2023-06-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r cars}
+library(phyloseq)   # 마이크로바이옴 데이터 분석 및 시각화
+library(tidyverse)  # R의 데이터 핸들링 
+library(readr)      # 파일 읽어오기 
+library(ggpicrust2) # PICRUSt2결과 처리 및 시각화
+library(ALDEx2)     # Aldex2 분석
+library(pheatmap)   # heatmap 시각화
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+## phyloseq 개체 읽어오기, 위치는 본인의 파일 위치에 따라 수정
+ps <- readRDS("./ps.rds")
+
+## ggpicrust2의 패키지를 이용해서 KO abundance를 kegg pathway abundance로 변환
+kegg_abundance <-
+  ko2kegg_abundance(
+    "./picrust_result/KO_metagenome_out/pred_metagenome_unstrat.tsv"
+  )
+kegg_abundance
+dim(kegg_abundance)
+```
+
+```{r}
+# 혀와 장 데이터만 추출
+ps_sub <- subset_samples(ps, body.site %in% c("gut", "tongue"))
+  # phyloseq-class experiment-level object
+  # otu_table()   OTU Table:         [ 770 taxa and 17 samples ]
+  # sample_data() Sample Data:       [ 17 samples by 8 sample variables ]
+  # tax_table()   Taxonomy Table:    [ 770 taxa by 7 taxonomic ranks ]
+  # phy_tree()    Phylogenetic Tree: [ 770 tips and 768 internal nodes ]
+
+
+
+# 샘플의 메타데이터 추출
+metadata <- sample_data(ps_sub) %>% data.frame() 
+
+
+# kegg_abundance에서도 장과 혀 샘플만 추출
+metadata <- metadata %>% rownames_to_column("SampleID")
+metadata <- metadata[metadata$body.site %in% c("gut", "tongue"), ]
+kegg_abundance2 <- kegg_abundance[, metadata$SampleID]
+dim(kegg_abundance2)
+# 243  17
+
+kegg_abundance3 <- kegg_abundance2
+require(data.table)
+setDT(kegg_abundance3)
+
+ko_AlDEx <- pathway_daa(
+    abundance = kegg_abundance2,
+    metadata = metadata,
+    group = "body.site", 
+    daa_method = "ALDEx2", # lefser, metagenomeSeq, limma_voom, edgeR, LinDA, Maaslin2, DESeq2, ALDEx2
+  )
+
+ko_AlDEx
+
+```
+
+```{r}
+Group <- factor(metadata$body.site)
+Level <- levels(Group)
+
+## ALDEx2 분석 ## 
+# 1) Aldex2분석을 위해 OTU read count 데이터를 CLR로 normalization 
+ALDEx2_object <- ALDEx2::aldex.clr(round(kegg_abundance2), metadata$body.site)
+	# clr 변환은 각 샘플의 모든 taxa값이 0이며, taxa간의 상대적 비율 값이 그대로 보존된다
+    
+# 2) Aldex 통계 분석
+ALDEx2_results <- ALDEx2::aldex.ttest(ALDEx2_object, paired.test = FALSE, verbose = FALSE)
+	# t.test결과와 wilcoxon rank sum test결과를 반환한다 
+  	# 각 taxa가 그룹내에서 유의한 수준으로 차이가 '있는지 없는지' 판별
+
+# 3) Effect size계산
+ALDEx2_effect <- ALDEx2::aldex.effect(ALDEx2_object)
+	# 각 taxa가 차이가 있다면(유의하다면), '얼마나' 차이가 있는지 판별
+    
+    
+# 4) 결과물 정리 
+p_values_df <- data.frame(
+  feature = rep(rownames(ALDEx2_results), 2), 
+  method = c(rep("ALDEx2_Welch's t test", nrow(ALDEx2_results)), 
+             rep("ALDEx2_Wilcoxon rank test", nrow(ALDEx2_results))),
+  group1 = rep(Level[1], 2 * nrow(ALDEx2_results)),
+  group2 = rep(Level[2], 2 * nrow(ALDEx2_results)),
+  p_values = c(ALDEx2_results$we.ep, ALDEx2_results$wi.ep),
+  
+  p_values = c(ALDEx2_results$we.ep, ALDEx2_results$wi.ep),
+  effect = ALDEx2_effect$effect)
+
+# 5) P- value값 보정 (BH 사용)
+adjusted_p_values <- data.frame(
+  feature = p_values_df$feature,
+  p_adjust = p.adjust(p_values_df$p_values, method = "BH"))
+
+# 6) 결과물 최종 정리
+ko_AlDEx_result <- cbind(p_values_df, p_adjust = adjusted_p_values$p_adjust)
+ko_AlDEx_result
+
+```
+
+```{R}
+# "ALDEx2_Wilcoxon rank test"결과 중에서 p-value값 보정이 유의한 것만 추출 
+ko_AlDEx_result2 <- ko_AlDEx_result[ko_AlDEx_result$method == "ALDEx2_Wilcoxon rank test" &
+                                    ko_AlDEx_result$p_adjust < 0.05, ]
+dim(ko_AlDEx_result2)
+# ggpicrust2의 annotation함수를 통해 이 kegg pathway데이터 가져오기
+ko_ann <-pathway_annotation(pathway = "KO",
+                            daa_results_df = ko_AlDEx_result2, 
+                            ko_to_kegg = TRUE)
+
+ko_ann
+
+# Pathway 1,2,3을 하나의 이름으로 표시하기
+pathway_table <- ko_ann %>% 
+  na.omit %>%  # 44
+  mutate(Level_123 = paste0(pathway_class," - ", pathway_map))
+rownames(pathway_table) <- pathway_table$feature
+
+
+```
+
+
+```{r}
+pathway_table
+
+# 순서 정렬 
+lev = pathway_table[order(pathway_table$effect), "Level_123"]
+pathway_table$Level_123 <- factor(pathway_table$Level_123, level = lev)
+# ggplot 
+pathway_table %>% 
+  mutate(Group = if_else(effect>0, "gut", "tongue")) %>% 
+  filter(abs(effect)>3) %>%
+  ggplot(aes(x = effect, y = Level_123, fill = Group)) + 
+  geom_col() + theme_classic() + 
+  labs(y = NULL, x = 'Effect zise')+
+  scale_x_continuous(limits = c(-7, 7), breaks = seq(-7,7,by=2)) # +
+  
+  # scale_fill_manual(name = NULL,  # legend
+  #                   breaks = c("NonDiarrhealControl", "DiarrhealControl"),
+  #                   labels = c('Healthy', "Diarrhea, *C. difficile* negative"),
+  #                   values=c("grey", "blue")) +
+  # theme(
+  #   axis.text.y = element_markdown(),
+  #   legend.text = element_markdown()  # * ???? ???? ?????̱?
+  # )
+
+```

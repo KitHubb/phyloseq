@@ -1,0 +1,139 @@
+---
+title: "2023-08-29_sl"
+author: "kim soyeon"
+date: "2023-08-29"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(phyloseq)
+library(microbiomeMarker)
+library(ggplot2)
+library(dplyr)
+
+ps <- readRDS("./ps.rds") %>%
+  subset_samples(body.site %in% c("gut", "tongue"))
+ps
+```
+
+# supervised leaning (SL) methods
+
+## random forest
+```{r}
+
+LR.1 <- microbiomeMarker::run_sl(
+  ps = ps,
+  group = "body.site", 
+  method = "LR")
+
+microbiomeMarker::plot_sl_roc(LR.1, group = "body.site")  
+ggsave("./Marker_LR01_roc.png")
+microbiomeMarker::plot_ef_bar(LR.1)  
+ggsave("./Marker_LR01_bar.png")
+
+
+
+LR.2 <- microbiomeMarker::run_sl(
+  ps = ps,
+  norm = "TSS",
+  group = "body.site",
+  method = "LR",
+  taxa_rank = "Genus")
+
+microbiomeMarker::plot_sl_roc(LR.2, group = "body.site")  
+ggsave("./Marker_LR02_roc.png")
+microbiomeMarker::plot_ef_bar(LR.2)  
+ggsave("./Marker_LR02_bar.png")
+
+```
+## SVM
+```{r}
+
+SVM.1 <- microbiomeMarker::run_sl(
+  ps = ps,
+  group = "body.site", 
+  method = "SVM")
+
+microbiomeMarker::plot_sl_roc(SVM.1, group = "body.site")  
+ggsave("./Marker_SVM01_roc.png")
+microbiomeMarker::plot_ef_bar(SVM.1)  
+ggsave("./Marker_SVM01_bar.png")
+
+
+
+SVM.2 <- microbiomeMarker::run_sl(
+  ps = ps,
+  norm = "CLR",
+  group = "body.site",
+  method = "SVM",
+  taxa_rank = "Species",
+  nfolds = 2,
+  nrepeats = 1,
+  top_n = 10)
+
+microbiomeMarker::plot_sl_roc(SVM.2, group = "body.site")  
+ggsave("./Marker_SVM02_roc.png")
+microbiomeMarker::plot_ef_bar(SVM.2)  
+ggsave("./Marker_SVM02_bar.png")
+microbiomeMarker::plot_cladogram(SVM.2,  color = c("darkgreen", "red"))  
+ggsave("./Marker_SVM02_cla.png")
+
+?plot_cladogram
+
+```
+
+## random forest
+```{r}
+
+Rf.1 <- microbiomeMarker::run_sl(
+  ps = ps,
+  group = "body.site", 
+  method = "RF")
+
+?run_sl
+microbiomeMarker::plot_sl_roc(Rf.1, group = "subject")  
+microbiomeMarker::plot_ef_bar(Rf.1)  
+
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+

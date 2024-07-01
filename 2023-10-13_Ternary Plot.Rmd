@@ -1,0 +1,169 @@
+---
+title: "2023-10-16-NCM"
+author: "kim soyeon"
+date: "2023-10-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(tibble)
+library(tidyverse)
+library(phyloseq)
+library(edgeR)
+ps <- readRDS("./ps.rds")
+ps.subset <- subset_samples(ps, body.site %in% c("gut", "left palm", "right palm"))
+
+
+```
+
+- https://rpubs.com/tskam/ternary_plot
+- https://blog.csdn.net/woodcorpse/article/details/107096807
+```{r}
+
+
+data_clean <- function(otu, design, type=c("relative", "absolute"), threshold=0.001, times=100){
+ 
+  # 函数测试数据
+  # library(amplicon)
+  # otu=otutab
+  # metadata$SampleID=rownames(metadata)
+  # design=metadata[,c("SampleID","Group")]
+  # type="absolute"
+  # threshold=0.0005
+  # times=100
+ 
+  # 绝对丰度转相对丰度1
+  if (type == "absolute"){
+    otu_relative <- apply(otu, 2, function(x){x/sum(x)})
+  }else {otu_relative <- otu}
+ 
+  # 至少有一个样本大于阈值即保留
+  idx <- rowSums(otu_relative > threshold) >= 1
+  otu_threshold <- as.data.frame(otu_relative[idx, ])
+  otu_threshold$OTUs <- row.names(otu_threshold)
+ 
+  #转换宽表格为长表格
+  otu_longer <- pivot_longer(data=otu_threshold,
+                             cols=-OTUs,
+                             names_to="SampleID",
+                             values_to="value")
+ 
+  # 按"SampleID"对应添加元数据中的分组Group
+  merge_data <- merge(otu_longer, design, by ="SampleID")
+  # 去除样本列
+  # otu <- subset(merge_data, select=-SampleID)
+  # 元数据不只有样本列，直接筛选OTUs、Group和value更稳健
+  otu <- subset(merge_data, select=c("Group","OTUs","value"))
+  # 按OTUs和Group求均值
+  otu_mean <- otu %>% dplyr::group_by(OTUs, Group) %>%
+    dplyr::summarise(value=mean(value))
+  # 转换回宽表格
+  otu_tern <- otu_mean %>%
+    dplyr::group_by(Group, OTUs) %>%
+    dplyr::mutate(index=row_number()) %>%
+    tidyr::pivot_wider(names_from=Group,values_from=value) %>%
+    select(-index)
+  # 此处用group_by可以直接合并均值，不用长、宽转换两次
+ 
+  # 调整点大小均值，可缩放 size of points
+  otu_tern$size <- (apply(otu_tern[2:4], 1, mean))*times
+  return(otu_tern)
+}
+```
+
+```{r}
+
+# 读取输入文件
+otutab <- otu_table(ps.subset) %>% as.matrix()
+design <-sample_data(ps.subset) %>% data.frame()
+design$SampleID <- rownames(design)
+# 只提取元数据中的样本名和分组列，要求名称为SampleID和Group
+design = design[,c("SampleID","body.site")]
+colnames(design)[2] <- "Group"
+
+# 计算三元图输入数据：各组相对丰度均值
+otu_tern <- data_clean(otu = otutab, design, type="absolute", threshold=0, times=100)
+head(otu_tern,n=3)
+
+
+```
+
+```{r}
+
+library(ggtern)
+# x/y/x指定三个组名，显示顺序为左、中、右
+p <- ggtern(data=otu_tern, aes(x=gut, y=`right palm`, z=`left palm`)) +
+  geom_point(aes(size=size), alpha=0.8, show.legend=T) +
+  scale_size(range=c(0, 6)) + geom_mask() +
+  guides(colour="none") + theme_bw() +
+  theme(axis.text=element_blank(), axis.ticks=element_blank())
+p
+
+
+ggsave(paste0("tarnary plot.png"), p, width=89, height=59, units="mm")
+
+```
+
+```{r}
+
+
+top_OTUs <- function(data, rank=10){
+  # 按丰度size降序排列
+  data_order <- data[order(data$size, decreasing=T), ]
+  # if (missing(rank))
+  #   rank=10
+  # 提取前N行
+  top <- data_order[1:rank, ]
+  # 其余部分
+  otu_el <- data_order[-(1:rank), ]
+  # 返回top和其它的列表
+  return(list(top, otu_el))
+}
+
+
+```
+
+```{r}
+
+plot_data <- top_OTUs(otu_tern, rank=10)
+ 
+# 配色方案
+platte <- c('#a6cee3', '#1f78b4', '#b2df8a', '#33a02c', '#fb9a99',
+            '#e31a1c', '#fdbf6f', '#ff7f00', '#cab2d6', '#6a3d9a')
+ 
+p <- ggtern(data=otu_tern,
+            aes(x=gut, y=`right palm`, z=`left palm`)) +
+  geom_mask() +
+  geom_point(data=plot_data[[2]], aes(size=size), color="grey",
+             alpha=0.8, show.legend=F) +
+  geom_point(data=plot_data[[1]], aes(size=size, color=OTUs),
+             show.legend=T) +
+  scale_colour_manual(values=platte) +
+  scale_size(range=c(0, 6)) +
+  # legend
+  guides(size="none") +
+  theme_bw() +
+  theme(axis.text=element_blank(),
+        axis.ticks=element_blank())
+p
+ggsave(paste0("tarnary plot2.png"), p, width=89, height=59, units="mm")
+
+
+```
+
+
+### Enrichment significance analysis
+
+```{r}
+
+
+```
+
+
+
+

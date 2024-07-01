@@ -1,0 +1,123 @@
+---
+title: "01.Cutadapt"
+author: "kin soyeon"
+date: "2023-07-24"
+output: html_document
+---
+
+
+
+```{r}
+library(dada2)
+library(ShortRead)
+library(Biostrings)
+library(dplyr)
+
+
+
+```
+
+```{r}
+allOrients <- function(primer) {
+
+  # Create all orientations of the input sequence
+  require(Biostrings)
+  dna <- DNAString(primer)  # The Biostrings works w/ DNAString objects rather than character vectors
+  orients <- c(Forward = dna, Complement = Biostrings::complement(dna), Reverse = reverse(dna), 
+      RevComp = Biostrings::reverseComplement(dna))
+  return(sapply(orients, toString))  # Convert back to character vector
+}
+
+primerHits <- function(primer, fn) {
+    # Counts number of reads in which the primer is found
+    nhits <- vcountPattern(primer, sread(readFastq(fn)), fixed = FALSE)
+    return(sum(nhits > 0))
+}
+```
+
+```{r}
+
+
+
+Cutadapt <- function(In_path, out_path, FWD, REV, QC = 20, cutadapt) {
+  dir.create("../cutadapt/") 
+  # import data
+  fnFs <- sort(list.files(path, pattern="_1.fastq", full.names = TRUE))
+  fnRs <- sort(list.files(path, pattern="_2.fastq", full.names = TRUE))
+  sample.names <- sapply(strsplit(basename(fnFs), "_1.fastq.gz"), `[`, 1)
+  sample.names %>% as.data.frame() %>% write.csv("../Input/Sample_name.csv")
+  
+  # check adapter 
+  rbind(FWD.ForwardReads = sapply(FWD.orients, primerHits, fn = fnFs[[1]]),
+        FWD.ReverseReads = sapply(FWD.orients, primerHits, fn = fnRs[[1]]),
+        REV.ForwardReads = sapply(REV.orients, primerHits, fn = fnFs[[1]]),
+        REV.ReverseReads = sapply(REV.orients, primerHits, fn = fnRs[[1]]))
+  
+  FWD.orients <- allOrients(FWD)
+  REV.orients <- allOrients(REV)
+  FWD.RC <- dada2:::rc(FWD)
+  REV.RC <- dada2:::rc(REV)
+  # Trim FWD and the reverse-complement of REV off of R1 (forward reads)
+  R1.flags <- paste("-g", FWD, "-a", REV.RC)
+  # Trim REV and the reverse-complement of FWD off of R2 (reverse reads)
+  R2.flags <- paste("-G", REV, "-A", FWD.RC)
+  
+  fnFs.cut <- file.path(out_path, paste0("QC",QC), basename(fnFs))
+  fnRs.cut <- file.path(out_path, paste0("QC",QC), basename(fnRs))
+  
+  system2(cutadapt, args = "--version") # Run shell commands from R
+  system2("echo", args = paste0(" '' > ../Cutadapt/QC",QC, "/Cutadapt_output.txt"))
+  
+  for(i in seq_along(fnFs)) {
+    system2(cutadapt, 
+            args = c(R1.flags, R2.flags, "-n", 2, # -n 2 required to remove FWD and REV from reads
+                     "-o", fnFs.cut[i], "-p", fnRs.cut[i], # output files
+                     "-Q", QC, "-q", QC, "--minimum-length 20 --discard-untrimmed",
+                     fnFs[i], fnRs[i],
+                     paste0(">> ../Cutadapt/QC",QC, "/Cutadapt_output.txt"))
+    )
+    }
+  
+  pass <- system(paste0("grep 'passing filters' ../Cutadapt/QC", QC, "/Cutadapt_output.txt | cut -f3 -d '(' | tr -d ')'"), intern = TRUE)
+  filt <- system(paste0("grep 'filtered' ../Cutadapt/QC",QC, "/Cutadapt_output.txt | cut -f3 -d '(' | tr -d ')'"), intern = TRUE)
+  output_summary <- data.frame(`name` = sample.names, `passing filters` = pass, `filtered` = filt)
+  
+  write.table(output_summary, paste0("../Cutadapt/QC", QC, "/Result.tsv"), 
+              quote=FALSE, sep="\t", col.names=NA)
+  
+  rbind(FWD.ForwardReads = sapply(FWD.orients, primerHits, fn = fnFs.cut[[1]]), 
+        FWD.ReverseReads = sapply(FWD.orients, primerHits, fn = fnRs.cut[[1]]), 
+        REV.ForwardReads = sapply(REV.orients, primerHits, fn = fnFs.cut[[1]]), 
+        REV.ReverseReads = sapply(REV.orients, primerHits, fn = fnRs.cut[[1]]))
+
+}
+
+
+
+
+```
+
+```{r}
+
+# Cutadapt(In_path = "../FASTQ/Project00",
+#          out_path = "~/ksy/project/Project00/Cutadapt",
+#          FWD = "AGAGTTTGATCCTGGCTCAG" , 
+#          REV = "ATTACCGCGGCTGCTGG", 
+#          QC = 20,
+#          cutadapt = "/home/ksy/cutadapt-venv/bin/cutadapt" )
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,263 @@
+---
+title: "2023-10-13_taxonomy_functoin"
+author: "kim soyeon"
+date: "2023-10-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(phyloseq)
+library(rlang)
+library(combinat)
+ps <- readRDS("./ps.rds")
+ps.rel <- phyloseq::transform_sample_counts(ps, fun = function(x) x/sum(x))
+
+```
+
+
+
+
+
+
+```{r}
+
+ps = ps.rel
+tax_level = "Phylum"
+group = "body.site"
+path = "./"
+com = "tongue"
+
+
+
+Abund_cal <- function(ps, tax_level, group, path) {
+  # tax_glom
+  ps.glom <- ps %>% tax_glom(taxrank = tax_level)
+  
+  # melt
+  melt <- psmelt(ps.glom)
+  
+  # setting
+  Taxonomy <- as.vector(unique(melt[, tax_level]))
+  meta <- data.frame(sample_data(ps.glom))
+  meta_com <- meta[, group, drop = TRUE] %>% unique
+  tax_num <- length(Taxonomy)
+
+  # reset
+  Total_result <- NULL
+  
+  ## Total abundance calculation
+  Total_result <- melt %>%
+    dplyr::group_by(!!rlang::sym(tax_level)) %>%
+    dplyr::summarize(
+      Total.Mean = mean(Abundance), # 평균
+      Total.N    = n(),             # 행 개수
+      Total.Sd   = sd(Abundance)    # 표준편차
+    )
+    
+  
+  
+  ## Each group abundance calculation
+  for (com in meta_com) {
+    # 각 그룹별 계산
+    melt.2 <- melt %>% filter(!!rlang::sym(group) == com)
+    result <- melt.2 %>%
+      dplyr::group_by(!!rlang::sym(tax_level)) %>%
+      dplyr::summarize(
+        !!paste0(com, ".Mean") := mean(Abundance),  # 평균
+        !!paste0(com, ".N")    := n(),              # 행 개수
+        !!paste0(com, ".Sd")  := sd(Abundance)      # 표준편차
+      ) %>%   
+        dplyr::mutate(!!paste0(com, ".se")      := !!rlang::sym(paste0(com, ".Sd"))    / sqrt(!!rlang::sym(paste0(com, ".N"))),           # 표준오차
+                      !!paste0(com, ".lower")   := !!rlang::sym(paste0(com, ".Mean"))  - qnorm(0.975) * !!rlang::sym(paste0(com, ".se")), # 95% 신뢰 구간 하한
+                      !!paste0(com, ".upper")   := !!rlang::sym(paste0(com, ".Mean"))  + qnorm(0.975) * !!rlang::sym(paste0(com, ".se")), # 95% 신뢰 구간 상한
+                      !!paste0(com, ".CI95per") := !!rlang::sym(paste0(com, ".upper")) - !!rlang::sym(paste0(com, ".lower"))              # 95% 신뢰 구간
+        )
+
+    # abundance 결과 저장
+    Total_result <- bind_cols(Total_result, result[, -1])
+  }
+  
+  Total_result
+  write.csv(Total_result, paste0(path, "Taxa_", group, "_stat_", tax_level, ".csv"), row.names = F)
+}
+
+Abund_cal(ps = ps.rel, tax_level = "Phylum", group = "body.site", path = "./")
+Abund_cal(ps = ps.rel, tax_level = "Genus", group = "body.site", path = "./")
+
+```
+
+
+```{r}
+ps = ps.rel
+tax_level = "Phylum"
+group = "body.site"
+path = "./"
+com = "tongue"
+
+
+Abund_compar <- function(ps, tax_level, group, path) {
+  # tax_glom
+  ps.glom <- ps %>% tax_glom(taxrank = tax_level)
+  
+  # melt
+  melt <- psmelt(ps.glom)
+  
+  # setting
+  Taxonomy <- as.vector(unique(melt[, tax_level]))
+  meta <- data.frame(sample_data(ps.glom))
+  meta_com <- meta[, group, drop = TRUE] %>% unique
+  tax_num <- length(Taxonomy)
+  permut <- combinat::combn(meta_com, 2) %>% t() # 순열 
+  p_val_df <- permut %>% as.data.frame()  # p-value값이 들어갈 data.frame
+  num <- nrow(permut)   
+  range <- seq(from = 1, to = num, by = 1) # for문을 위한 수열
+  
+  
+  # reset
+  Total_result <- NULL
+  
+  for (tax in Taxonomy) {
+    if (compar_num>=3){ # 3군 이상일때 kruskal wallis 분석
+      ###  kruskal wallis
+      krus_p <- kruskal.test(melt[, tax] ~ melt[, group], data = melt)$p.value
+      p_val_df["kruskal wallis—pval", index] <- krus_p
+    }
+  
+  
+  
+  Total_result
+  write.csv(Total_result, paste0(path, "Taxa_", group, "_stat_", tax_level, ".csv"), row.names = F)
+}
+```
+
+
+```{r}
+group_column = "body.site"
+
+Calculate_P_Values <- function(ps, tax_level, group_column, output_path) {
+  # Phyloseq 데이터를 melt
+  melt <- psmelt(ps)
+  
+  
+  # Kruskal-Wallis 테스트를 수행하여 p-value 계산
+  kruskal_results <- melt %>%
+    summarise(p_value = kruskal.test(Abundance ~ as.factor(!!sym(group_column)))$p.value)
+  
+  
+  # 각 그룹 간 Wilcoxon 테스트를 수행하여 p-value 계산
+  group_names <- unique(melt[[group_column]])
+  statistic_results <- combn(group_names, 2, function(pair) {
+    subset_data <- melt %>% filter(!!sym(group_column) %in% pair)
+    p_value <- wilcox.test(subset_data$Abundance ~ subset_data[[group_column]])$p.value
+    data.frame(Group1 = pair[1], Group2 = pair[2], p_value = p_value)
+  }, simplify = FALSE) %>%
+    bind_rows()
+  statistic_results[, "p_adjust"] <- p.adjust(statistic_results[, "p_value"], method = "fdr")
+  statistic_results["Kruskal-wallus", "p_value"]  <- kruskal_results
+  # 결과 저장
+  write.csv(statistic_results, paste0(output_path, "Statistic_P_Values_", tax_level, ".csv"), row.names = T)
+}
+
+
+ps.rel.g <- tax_glom(ps.rel, "Genus")
+
+Calculate_P_Values(ps = ps.rel.g, tax_level = "Genus", group_column = "body.site", output_path = "./")
+
+```
+
+
+```{r}
+Calculate_P_Values <- function(ps, tax_level, group_column, output_path) {
+  # Phyloseq 데이터를 melt
+  melt <- psmelt(ps)
+  
+  # 각 taxa 추출 
+  unique_taxa <- unique(melt[[tax_level]])
+  total_results <- data.frame()
+  
+  
+  # taxon별로 계산하기  
+  for (taxon in unique_taxa) {
+    
+    # Subset 데이터: 특정 Taxonomy level에 대한 데이터만 추출
+    melt.2 <- melt %>% filter(!!sym(tax_level) == taxon)
+    
+    
+    # Kruskal-Wallis 테스트를 수행하여 p-value 계산
+    kruskal_results <- melt.2 %>%
+      summarise(p_value = kruskal.test(Abundance ~ as.factor(!!sym(group_column)))$p.value)
+    
+    # 각 그룹 간 Wilcoxon 테스트를 수행하여 p-value 계산
+    group_names <- unique(melt.2[[group_column]])
+    statistic_results <- combinat::combn(group_names, 2, function(pair) {
+      subset_data <- melt.2 %>% filter(!!sym(group_column) %in% pair)
+      p_value <- wilcox.test(subset_data$Abundance ~ subset_data[[group_column]])$p.value
+      data.frame(Group1 = pair[1], Group2 = pair[2], wilcox_p_value = p_value)
+    }, simplify = FALSE) %>%
+      bind_rows()
+    
+    # p-value값 보정
+    statistic_results[, "p_adjust"] <- p.adjust(statistic_results[, "wilcox_p_value"], method = "fdr")
+    statistic_results[, "Kruskal-wallus_p_value"]  <- kruskal_results 
+    statistic_results[, "taxonomy"] <- taxon
+    
+    total_results <- bind_rows(total_results, statistic_results)
+  } 
+  total_results
+  
+  # 결과 저장
+  write.csv(total_results, paste0(output_path, "Compar_P_Values_", tax_level, ".csv"), row.names = F)
+}
+
+ps.rel.ph <- tax_glom(ps.rel, "Phylum")
+Calculate_P_Values(ps.rel.ph, "Phylum", "body.site", "./")
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+

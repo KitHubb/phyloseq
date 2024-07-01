@@ -1,0 +1,129 @@
+---
+title: "Heat tree"
+author: "kim soyeon"
+date: "2023-08-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, echo = TRUE) 
+```
+# Heat tree
+- metacoder package 
+- paper : Foster, Z. S., Sharpton, T. J., & Grünwald, N. J. (2017). Metacoder: An R package for visualization and manipulation of community taxonomic diversity data. PLoS computational biology, 13(2), e1005404. https://doi.org/10.1371/journal.pcbi.1005404 
+- citations : 498(2023.08.25 기준)
+
+```{r}
+library(phyloseq)
+library(metacoder)
+library(ggplot2)
+library(dplyr)
+
+```
+## 01.import data
+```{r}
+ps <- readRDS("./ps.rds") %>%
+  transform_sample_counts(function(x) x/sum(x) ) %>% 
+  subset_samples(body.site %in% c("gut", "tongue"))
+ps # 770 taxa and 17 samples
+
+# read가 0인 샘플, taxa제거
+ps.f = prune_samples(sample_sums(ps)>0, ps) 
+# ps.f = prune_taxa(rowSums(otu_table(t(ps.f))) > 0, ps.f) # 위 데이터에선 에러
+```
+
+## 02.phylsoeq to metacoder object
+```{r}
+obj <- parse_phyloseq(ps.f)
+
+```
+
+- abundance and difference calculation
+```{r}
+obj$data$tax_data <- calc_obs_props(obj, "tax_data") # 각 taxa 계산
+obj$data$tax_abund <- calc_taxon_abund(obj, "otu_table") # 샘플의 abundance 계산
+obj$data$tax_occ <- calc_n_samples(obj, "tax_abund", 
+                                   groups = obj$data$sample_data$body.site, 
+                                   cols = obj$data$sample_data$sample_id)
+
+obj$data$diff_table <- compare_groups(obj, data = "tax_abund",  # wilcoxon rank sum test
+                                      cols = obj$data$sample_data$sample_id,
+                                      groups = obj$data$sample_data$body.site)
+print(obj$data$diff_table)
+```
+
+
+## 03. draw heat tree 
+```{r}
+obj %>% 
+  filter_taxa(taxon_ranks == "Genus", supertaxa = TRUE) %>% 
+  heat_tree(node_label = taxon_names,
+            node_size_axis_label = "Number of ASVs",
+            node_size = n_obs,
+            node_color_axis_label = "Mean difference",
+            node_color = mean_diff,
+            node_color_range= c("#E31A1C","grey90",  "#1F78B4"), 
+            layout = "davidson-harel", 
+            initial_layout = "reingold-tilford",
+            output_file = "./heat_tree_ex1.pdf")
+
+obj %>% 
+  filter_taxa(taxon_ranks == "Genus", supertaxa = TRUE) %>% 
+  heat_tree(node_label = taxon_names,
+            node_size_axis_label = "Number of ASVs",
+            node_size = n_obs,
+            node_color_axis_label = "Mean difference",
+            node_color = mean_diff,
+            node_color_range= c("#E31A1C","grey90",  "#1F78B4"), 
+            output_file = "./heat_tree_ex2.pdf")
+
+```
+
+## DESeq2 test 
+```{r}
+ps <- readRDS("./ps.rds") %>%
+  subset_samples(body.site %in% c("gut", "tongue")) # Not relative abundance
+ps.f = prune_samples(sample_sums(ps)>0, ps) 
+
+
+obj2 = parse_phyloseq(ps.f)
+
+
+obj2$data$tax_data <- calc_obs_props(obj2, "tax_data") # 각 taxa 계산
+obj2$data$tax_abund <- calc_taxon_abund(obj2, "otu_table") # 샘플의 abundance 계산
+obj2$data$tax_occ <- calc_n_samples(obj2, "tax_abund", 
+                                   groups = obj2$data$sample_data$body.site, 
+                                   cols = obj$data$sample_data$sample_id)
+obj2$data$tax_data
+obj2$data$tax_abund
+obj2$data$tax_occ
+
+obj2$data$diff_table <- calc_diff_abund_deseq2(obj2, data = "tax_abund",
+                                               cols = obj$data$sample_data$sample_id,
+                                               groups =  obj$data$sample_data$body.site)
+
+print(obj2$data$diff_table)
+
+
+obj2 %>% 
+  filter_taxa(taxon_ranks == "Genus", supertaxa = TRUE) %>% 
+  heat_tree(node_label = taxon_names,
+            node_size = n_obs,
+            node_color_axis_label = "Log2 fold change",
+            node_size_axis_label = "Number of ASVs",
+            node_color = ifelse(is.na(padj) | padj > 0.05, 0, log2FoldChange),
+            node_color_range= c("#E31A1C","grey90",  "#1F78B4"), 
+            layout = "davidson-harel", 
+            initial_layout = "reingold-tilford",
+            output_file = "./heat_tree_ex3.pdf")
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+

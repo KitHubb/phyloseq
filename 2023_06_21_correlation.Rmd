@@ -1,0 +1,423 @@
+---
+title: "Untitled"
+author: "kim soyeon"
+date: "2023-06-21"
+output: html_document
+---
+
+```{r}
+library(phyloseq)
+library(ggplot2)
+library(ggpubr) 
+library(ggrepel) 
+library(ggcorrplot) 
+ps <- readRDS("./ps.rds") 
+# phyloseq-class experiment-level object
+# otu_table()   OTU Table:         [ 770 taxa and 34 samples ]
+# sample_data() Sample Data:       [ 34 samples by 8 sample variables ]
+# tax_table()   Taxonomy Table:    [ 770 taxa by 7 taxonomic ranks ]
+# phy_tree()    Phylogenetic Tree: [ 770 tips and 768 internal nodes ]
+
+ps.rel <- transform_sample_counts(ps, function(x) x/sum(x) )
+
+```
+
+```{r}
+alpha_div <- estimate_richness(ps.rel, measures = "Shannon")
+alpha_meta <- merge(sample_data(ps.rel), alpha_div, by = "row.names")
+
+```
+
+
+
+# Scatter plot_Correlation function
+```{r}
+
+cor_plot <- function(df, x = x, y = y,  Ylab = NULL, Xlab = NULL, Title = NULL, 
+                     SampleID = "SampleID", shape = shape, color = color, cols = cols ) {
+  
+  
+  p <- ggplot(df, aes_string(x, y, label = SampleID)) +
+    geom_point(aes_string(shape = shape, color = color), size = 3) +
+    stat_smooth(color = "blue", method = "lm") + 
+    ggpubr::stat_cor(method = "spearman", label.x = 1, label.y = 4.5, color = "red") + 
+    theme_test() +
+    labs(title = Title, y = Ylab, x = Xlab)
+  p
+  return(p)
+}
+
+```
+
+```{r}
+cor_plot(alpha_meta, "days.since.experiment.start", "Shannon",  Ylab = "Shannon", Xlab = "Day", 
+         shape = "body.site", color = "body.site", col = NULL ) + 
+  geom_text_repel(size = 3)
+  
+ggsave("./Correlation.png", width = 6, height = 4, dpi = 300, 
+       device = png, type = "cairo",  bg = "transparent")
+
+
+gut <- alpha_meta[alpha_meta$body.site %in% "gut", ]
+cor_plot(gut, "days.since.experiment.start", "Shannon",  
+         Ylab = "Shannon", Xlab = "Day",SampleID = "Row.names" ,
+         shape = "body.site", color = "body.site", col = NULL ) + 
+  geom_text_repel(size = 3)
+  
+ggsave("./Correlation_gut.png", width = 6, height = 4, dpi = 300, 
+       device = png, type = "cairo",  bg = "transparent")
+
+
+palm <- alpha_meta[alpha_meta$body.site %in% c("left palm","right palm" ), ]
+cor_plot(palm, "days.since.experiment.start", "Shannon",SampleID = "Row.names",  
+         Ylab = "Shannon", Xlab = "Day", 
+         shape = "body.site", color = "body.site", col = NULL ) + 
+  geom_text_repel(size = 3)
+  
+ggsave("./Correlation_palm.png", width = 8, height = 4, dpi = 300, 
+       device = png, type = "cairo",  bg = "transparent")
+
+
+
+palm <- alpha_meta[alpha_meta$body.site %in% c("left palm","right palm" ), ]
+cor_plot(palm, "days.since.experiment.start", "Shannon",SampleID = "Row.names",  
+         Ylab = "Shannon", Xlab = "Day", 
+         shape = "body.site", color = "body.site", col = NULL ) + 
+  geom_text_repel(size = 3)
+  
+ggsave("./Correlation_palm.png", width = 8, height = 4, dpi = 300, 
+       device = png, type = "cairo",  bg = "transparent")
+
+
+
+```
+
+
+# Heatmap_Correlation function
+```{r}
+
+library(reshape2)
+
+ps.ph <- tax_glom(ps.rel, taxrank = "Phylum")
+TAX <- tax_table(ps.ph) %>% data.frame()
+OTU <- otu_table(ps.ph) %>% data.frame()
+META <- sample_data(ps.ph) %>% data.frame()
+Table <- merge(TAX, OTU, by = "row.names")
+Table
+
+```
+## Each Samples
+```{r}
+
+ps.gn <- tax_glom(ps.rel, taxrank = "Genus")
+TAX <- tax_table(ps.gn) %>% data.frame()
+OTU <- otu_table(ps.gn) %>% data.frame()
+META <- sample_data(ps.gn) %>% data.frame()
+Table <- merge(TAX, OTU, by = "row.names")
+head(Table, c(5,10))
+#                          Row.names  Kingdom          Phylum              Class              Order               Family                             Genus Species     L1S105      L1S140
+# 1 0160e14a78b18b903618f11bc732746e Bacteria Verrucomicrobia   Verrucomicrobiae Verrucomicrobiales  Verrucomicrobiaceae                       Akkermansia    <NA> 0.02583548 0.000000000
+# 2 01b99cb344ed2530f7d80897ffe257a9 Bacteria  Proteobacteria Betaproteobacteria    Burkholderiales       Comamonadaceae                        Acidovorax    <NA> 0.00000000 0.000000000
+# 3 047b7fb62a5e9d2711e639ae1cb1519a Bacteria      Firmicutes         Clostridia      Clostridiales      Veillonellaceae                       Veillonella    <NA> 0.00000000 0.000000000
+# 4 04c7e0ea3038f942f5a28778a74cd1c0 Bacteria   Bacteroidetes        Bacteroidia      Bacteroidales [Paraprevotellaceae] Unclassified [Paraprevotellaceae]    <NA> 0.00000000 0.000000000
+# 5 052128d7d424728578efe7852b0afd0d Bacteria      Firmicutes         Clostridia      Clostridiales      Lachnospiraceae                       Coprococcus    <NA> 0.01336761 0.001954488
+
+
+cor.test(Table[, 9], Table[,10], method = "spearman")
+# 	Spearman's rank correlation rho
+# 
+# data:  Table[, 9] and Table[, 10]
+# S = 1199039, p-value < 2.2e-16
+# alternative hypothesis: true rho is not equal to 0
+# sample estimates:
+#      rho 
+# 0.661506 
+
+0.9853252 
+correlation <- cor(Table[, 9:42], method = "spearman")
+head(correlation, c(5,5))
+#           L1S105    L1S140    L1S208    L1S257    L1S281
+# L1S105 1.0000000 0.6615060 0.5868195 0.5893515 0.6047138
+# L1S140 0.6615060 1.0000000 0.5864333 0.5611882 0.6762975
+# L1S208 0.5868195 0.5864333 1.0000000 0.8523782 0.8043373
+# L1S257 0.5893515 0.5611882 0.8523782 1.0000000 0.8201154
+# L1S281 0.6047138 0.6762975 0.8043373 0.8201154 1.0000000
+
+
+ggcorrplot::ggcorrplot(cor(Table[, 9:42], method = "spearman") )
+ggsave("./Correlation_Heatmap_1.png", width = 8, height = 7, dpi = 300, 
+       device = png, type = "cairo",  bg = "transparent")
+```
+
+
+```{r}
+
+
+ggcorrplot::ggcorrplot(cor(Table[, 9:42], method = "spearman") )
+
+Cor <- cor(Table[, 9:42], method = "spearman")
+p_values <- ggcorrplot::cor_pmat(Cor)
+
+p <- ggcorrplot::ggcorrplot(Cor, 
+                            p.mat= p_values)
+p
+ggsave("./Correlation_Heatmap_gn.png", width = 8, height = 7, dpi = 300, 
+       device = png, type = "cairo",  bg = "transparent")
+```
+
+
+
+## Each Sites
+```{r}
+library(dplyr)
+library(tibble)
+OTU.t <- otu_table(ps.ph) %>% t() %>% as.matrix() %>% data.frame()
+Table2 <- merge(META[,c("body.site"), drop = F], OTU.t, by = "row.names")
+
+Table2.Site <- Table2[, -1] %>% group_by(body.site) %>% 
+  summarise_each(funs(sum)) %>% tibble::column_to_rownames("body.site") %>% t()
+
+
+ggcorrplot::ggcorrplot(cor(Table2.Site))
+ggsave("./Correlation_Heatmap_2.png", width = 8, height = 7, dpi = 300, 
+       device = png, type = "cairo",  bg = "transparent")
+
+```
+
+
+## Each Genus
+```{r}
+
+ps.gn.1 = filter_taxa(ps.gn, function(x) mean(x) > .01, TRUE) # 18
+TAX.1 <- tax_table(ps.gn.1) %>% data.frame()
+OTU.1 <- otu_table(ps.gn.1) %>% data.frame()
+Table.1 <- merge(TAX.1, OTU.1, by = "row.names")
+head(Table.1)
+
+Data <- Table.1[, c(7, 9:42)] %>% column_to_rownames("Genus") %>% t()
+
+
+Cor2 <- cor(Data, , method = "spearman")
+p_values2 <- ggcorrplot::cor_pmat(Cor2)
+
+ggcorrplot::ggcorrplot(Cor2, p.mat= p_values2, hc.order = TRUE)
+
+ggsave("./Correlation_Heatmap_3_gn.png", width = 8, height = 7, dpi = 300, 
+       device = png, type = "cairo",  bg = "transparent")
+
+```
+##  Genus ~ meta
+```{r}
+
+Table.3 <- merge(META[,c("days.since.experiment.start"), drop = F], 
+                 Data, by = "row.names") %>% 
+  tibble::column_to_rownames("Row.names")
+
+
+Cor3 <- cor(Table.3,  method = "spearman")
+p_values3 <- ggcorrplot::cor_pmat(Cor3)
+
+
+ggcorrplot::ggcorrplot(Cor3, p.mat= p_values3)
+
+
+
+ggcorrplot::ggcorrplot(Cor3[colnames(Data), "days.since.experiment.start", drop = F], 
+                       p.mat= p_values3[colnames(Data),"days.since.experiment.start", drop = F])
+
+
+ggsave("./Correlation_Heatmap_4_gn.png", width = 8, height = 7, dpi = 300, 
+       device = png, type = "cairo",  bg = "transparent")
+
+```
+
+
+```{r}
+
+cor_plot <- function(df, x = x, y = y,  Ylab = NULL, Xlab = NULL, Title = NULL, SampleID = "SampleID", shape = shape, color = color, cols = cols ) {
+
+  
+  p <- ggplot(df, aes_string(x, y, label = SampleID)) +
+    geom_point(aes_string(shape = shape, color = color), size = 3) +
+    stat_smooth(color = "blue", method = "lm") + 
+    ggpubr::stat_cor(method = "spearman", label.x = 1, label.y = NULL, color = "red") + 
+    theme_test() +
+    labs(title = Title, y = Ylab, x = Xlab)
+  p
+  return(p)
+}
+
+```
+
+
+```{r}
+Table.3
+
+Table.3$SampleID <- rownames(Table.3)
+
+Table.4 <- merge( META[, c("body.site"), drop = F], Table.3,  by = "row.names")
+
+
+gut <- Table.4[Table.4$body.site %in% c("gut"), ]
+
+colnames(palm)
+#  [1] "Row.names"                    "body.site"                    "days.since.experiment.start" 
+#  [4] "Veillonella"                  "Haemophilus"                  "Prevotella"                  
+#  [7] "Bacteroides"                  "Anaerococcus"                 "Unclassified Lachnospiraceae"
+# [10] "Pseudomonas"                  "Acinetobacter"                "Fusobacterium"               
+# [13] "Corynebacterium"              "Faecalibacterium"             "Unclassified Bacilli"        
+# [16] "Lachnospira"                  "Streptococcus"                "Phascolarctobacterium"       
+# [19] "Unclassified Streptophyta"    "Rothia"                       "Neisseria"                   
+# [22] "SampleID"                   
+
+# Phascolarctobacterium
+# Lachnospira
+# Bacteroides
+cor_plot(df = gut, 
+         x = "days.since.experiment.start",
+         y =  "Lachnospira",
+         SampleID = "SampleID", Ylab = "Rothia", Xlab = "Day",
+         shape = NULL, color = NULL, cols = NULL) + 
+  geom_text_repel(size = 3)
+
+
+ggsave("./Correlation_Heatmap_5_gn.png", width = 6, height = 4, dpi = 300,
+       device = png, type = "cairo",  bg = "transparent")
+
+
+```
+
+
+
+
+
+
+
+
+
+## PICRUSt2 ~ Genus
+```{r}
+library(ggpicrust2)
+library(readr)
+# kegg_abundance <-
+#   ko2kegg_abundance(
+#     "./picrust_result/KO_metagenome_out/pred_metagenome_unstrat.tsv"
+#   )
+# kegg_abundance # 243 × 34
+# 
+# kegg_abundance.30 <- kegg_abundance[1:30, ] %>% t()
+# write.csv(kegg_abundance.30, "./Kegg_example.csv")
+?read_csv
+kegg_abundance.30 <- read_csv("./Kegg_example.csv") %>% 
+  column_to_rownames("...1")
+TAX.ph <- as.data.frame(tax_table(tax_glom(ps.rel, taxrank = "Phylum")))
+OTU.ph <- as.data.frame(otu_table(tax_glom(ps.rel, taxrank = "Phylum")))
+
+table.ph <-  merge(TAX.ph, OTU.ph, by = "row.names")
+table.ph.2 <- table.ph[ ,c(3, 9:42)] %>% column_to_rownames("Phylum") %>% t()
+
+
+Table.final <- merge(table.ph.2, kegg_abundance.30, by = "row.names") %>% column_to_rownames("Row.names")
+Cor <- cor(Table.final)
+
+Cor.2 <- Cor[colnames(table.ph.2), colnames(kegg_abundance.30)]
+dim(Cor.2)
+p_values <- ggcorrplot::cor_pmat(Cor)[colnames(table.ph.2), colnames(kegg_abundance.30)]
+dim(p_values)
+
+p <- ggcorrplot::ggcorrplot(Cor.2,
+                       method = c("circle"),
+                       # type = c("lower"),
+                       p.mat= p_values,
+                       insig = "pch"
+                       )
+p
+ggsave("./Correlation_Heatmap_6.png", width = 8, height = 4, dpi = 300, 
+       device = png, type = "cairo",  bg = "transparent")
+```
+
+
+```{r}
+
+
+
+```
+
+
+
+
+# Heatmap example
+```{r}
+library(ggcorrplot)
+library(heatmaply)
+library(plotly)
+library(corrplot)
+library(reshape)
+```
+
+
+```{r}
+Col <- cor(mtcars)
+Col.m <- reshape2::melt(Col)
+
+
+ggplot(data = Col.m, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile() +
+  geom_text(aes(Var2, Var1, label = round(value,1 )), size = 3) +
+  scale_fill_gradient2(low = "red", high = "green",
+                       limit = c(-1,1), name="Correlation") +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        panel.background = element_blank())
+
+```
+
+```{r}
+
+```
+
+
+
+```{R}
+corrplot(cor(mtcars))
+
+```
+
+```{r}
+ggcorrplot::ggcorrplot(cor(mtcars))
+
+```
+
+```{r}
+heatmaply::ggheatmap(cor(mtcars))
+```
+
+
+```{r}
+
+corr_mat <- ggcorrplot::ggcorrplot(cor(mtcars))
+plotly::ggplotly(corr_mat)
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+
+

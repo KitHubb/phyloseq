@@ -1,0 +1,347 @@
+---
+title: "Dada2_to_phyloseq"
+author: "kim soyeon"
+date: "2023-07-24"
+output: html_document
+---
+
+- for 16S rRNA v1-v3 data
+-
+# Package 
+```{r}
+library(dada2)
+library(ShortRead)
+library(Biostrings)
+library(DECIPHER)
+library(phangorn)
+library(dplyr)
+library(ggplot2)
+library(readxl)
+```
+
+# Functions
+```{r} 
+
+
+#### f1.Dada2  #### 
+f1.Dada2 <- function (path_trimm_fastq, maxEE_r) {
+  
+  dir.create("../Dada2/") 
+
+  #### 1) intput ####
+  fnFs.t <- sort(list.files(path, pattern="_1.fastq", full.names = TRUE))
+  fnRs.t <- sort(list.files(path, pattern="_2.fastq", full.names = TRUE))
+
+  sample.names.t <- sapply(strsplit(basename(fnFs.t), "_1.fastq.gz"), `[`, 1)
+  sample.names.t %>% length 
+
+  #### 2) trim and filter ####
+  dir.create("../Dada2/Filter/") 
+  path.f = "../Dada2/Filter"
+  
+  filtFs.f <- file.path(path.f, paste0("filtered_2",maxEE_r),  paste0(sample.names.t, "_1_filt.fastq.gz"))
+  filtRs.f <- file.path(path.f, paste0("filtered_2",maxEE_r), paste0(sample.names.t, "_2_filt.fastq.gz"))
+  
+  set.seed(42)
+  dir.create(paste0("../Dada2/Filter/filtered_2",maxEE_r)) 
+  out <- dada2::filterAndTrim(fnFs.t, filtFs.f,
+                              fnRs.t, filtRs.f,
+                              truncLen=c(260, 260),
+                              maxN=0, maxEE=c(2,maxEE_r),
+                              truncQ=2, rm.phix=TRUE,
+                              compress=TRUE,
+                              multithread=FALSE,
+                              verbose=TRUE)
+  out
+  
+  write.csv(out, paste0("../Dada2/Filter/filtered_2",maxEE_r, "/filterAndTrim.tsv"),
+              quote=FALSE, sep="\t", col.names=NA)
+
+
+
+  #### 3) Error model ####
+  dir.create("../Dada2/Error/") 
+  set.seed(42)
+  err_f <- learnErrors(filtFs.f)
+  saveRDS(err_f, paste0("../Dada2/Error/err_f_2", maxEE_r, ".rds"))
+  
+  Sys.sleep(60)
+  set.seed(42)
+  err_r <- learnErrors(filtRs.f)
+  saveRDS(err_r,paste0("../Dada2/Error/err_r_2", maxEE_r, ".rds"))
+  
+  plotErrors(err_f, nominalQ=TRUE)
+  ggsave(paste0("../Dada2/Error/plotErrors_f_2", maxEE_r, ".png"), width = 6, height = 6)
+  plotErrors(err_r, nominalQ=TRUE)
+  ggsave(paste0("../Dada2/Error/plotErrors_r_2", maxEE_r, ".png"), width = 6, height = 6)
+
+  #### 4) Inference #### 
+  set.seed(42)
+  dadaFs <- dada(filtFs.f, err=err_f, multithread=TRUE)
+  set.seed(42)
+  dadaRs <- dada(filtRs.f, err=err_r, multithread=TRUE)
+  #### 5) Merge #### 
+  set.seed(42)
+  mergers <- dada2::mergePairs(dadaFs, filtFs.f,
+                               dadaRs, filtRs.f,
+                               verbose=TRUE) 
+  #### 6) count table #### 
+  seqtab <- makeSequenceTable(mergers)
+  dim(seqtab) 
+  
+  #### 7)  Chimera identification and removal  #### 
+  dir.create("../Dada2/Track/") 
+  Sys.sleep(30)
+  seqtab.nochim <- removeBimeraDenovo(seqtab, method="consensus",
+                                      multithread=TRUE, verbose=TRUE)
+  dim(seqtab.nochim)  
+  sum(seqtab.nochim)/sum(seqtab.20.22) 
+  
+  getN <- function(x) sum(getUniques(x))
+  
+  per <- rowSums(seqtab.nochim)/out[,"reads.in"]
+  per <- per*100
+  track <- cbind(out,                   # input filtered
+                       sapply(dadaFs, getN),  # denoisedF
+                       sapply(dadaRs, getN),  # denoisedR
+                       sapply(mergers, getN), # merged
+                       rowSums(seqtab.nochim),# nonchim
+                       round(per, 1))         # total_percents (%)
+  
+  colnames(track) <- 
+    c("input", "filtered", "denoisedF", "denoisedR", "merged", "nonchim", "total_percents(%)")
+  rownames(track) <- sample.names.t
+  
+  
+  write.table(track, paste0("../Dada2/Track/track_2", maxEE_r, ".tsv"),
+              quote=FALSE, sep="\t", col.names=NA)
+
+  return(seqtab.nochim)
+}
+  
+  
+
+```
+
+```{r}
+#### f2.assign #### 
+f2.assign <- function (seqtab.nochim, 
+                       db_path1 = "~/Reference/dada2/RDP/RDP_18/rdp_train_set_18.fa.gz",
+                       db_path2 = "~/Reference/dada2/RDP/RDP_18/rdp_species_assignment_18.fa.gz") {
+  dir.create("../Dada2/Assign/") 
+  set.seed(42)
+  taxa <- assignTaxonomy(seqtab.nochim, db_path1, multithread=TRUE, tryRC=TRUE)
+  
+  set.seed(42)
+  taxa <- addSpecies(taxa, db_path2)
+  
+  unname(taxa) 
+  
+  saveRDS(taxa, paste0("../Dada2/Assign/taxa_2", maxEE_r, ".rds"))
+  dim(taxa)
+  
+  
+  # remove : Mitochondria, Chloroplast, Archaea, NA  
+  otu_t <- t(seqtab.nochim) %>% as.data.frame()
+  tax_sp <- taxa   %>% data.frame()
+  
+  otu_t  %>% dim() #
+  tax_sp %>% dim() #
+  
+  # merge otu and taxa 
+  table <-  merge(otu_t, tax_sp, by = 'row.names') 
+  rownames(table) <- table$Row.names
+  table$Row.names <- NULL
+  dim(table) 
+  
+  write.csv(table, paste0("../Dada2/Assign/table_2", maxEE_r, ".csv"),
+            sep = "\t", quote=FALSE, row.names = T, col.names = T)
+ 
+  # filtering taxa
+
+  Table <- table
+  print(paste0("original : ", dim(Table)))
+  
+  # remove Not Bacteria =  NA, "Eukaryota"
+  Table<- Table %>%  filter(grepl("Bacteria", Table$Kingdom)) 
+  print(paste0("Remove Non Bacteria : ", dim(Table)) )
+  
+  # remove Chloroplast 
+  Table<- Table %>%  filter(!grepl("Chloroplast", Table$Phylum))
+  print(paste0("Remove Chloroplast : ", dim(Table)))
+            
+  # remove Mitochondria 
+  Table<- Table %>%  filter(!grepl("Mitochondria", Table$Class)) 
+  print(paste0("Remove Mitochondria : ", dim(Table)) )
+      
+
+  
+  # sort by abundance 
+    col <- ncol(Table) 
+    Table.2 <- Table
+    Table.2$Sum <- rowSums( Table.2[ , c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")])
+    Table.2 = Table.2[order(-Table.2$Sum),]
+  
+  
+    
+  # Rearrange file  
+  
+  asv_id <- Table.2[,c(1:(col-7))]%>% colnames() 
+  tax_id <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")
+  
+  
+  # 이름 추출 및 수정 
+  asv_id.2 <- sapply(strsplit(basename(asv_id), "_1_filt.fastq.gz"), `[`, 1) 
+  asv_id.2
+  
+  # colname 바꾸기 
+  Table.3 <- Table.2
+  colnames(Table.3) <- c(asv_id.2, tax_id)
+  write.table(Table.3, paste0("../Dada2/Assign/taxa_2", maxEE_r, "_filt.tsv"), 
+              sep = "\t", quote=FALSE, col.names = T, row.names = T)
+  
+  return(Table.3)
+}
+```
+
+
+```{r}
+#### f3.align_func #### 
+f3.align <- function(sequences, filename){
+  dir.create("../Dada2/Align/") 
+
+  ## Run sequence alignment (MSA) unsing DECIPHER
+  alignment <- AlignSeqs(DNAStringSet(sequences), anchor = NA) # 오전 10:50
+  
+  #Change sequence alignment output into a phyDat structure
+  phang.align <- phyDat(as(alignment, "matrix"), type="DNA")
+  
+  #Create distance matrix
+  dm <- dist.ml(phang.align)
+  
+  #Perform Neighbor joining
+  treeNJ <- NJ (dm) # Note, tip order = sequence order
+  
+  #Internal maximum likelihood
+  fit = pml(treeNJ, data=phang.align) # OK
+  
+  ## negative edges length changed to 0!
+  fitGTR <- update(fit, k=4, inv=0.2)
+  fitGTR <- optim.pml (fitGTR, model="GTR", optInv=TRUE, optGamma=TRUE,
+                       rearrangement = "stochastic", control = pml.control(trace = 0))
+
+  saveRDS(fitGTR, paste0("../Dada2/Align/", filename, ".rds"))
+  return(fitGTR$tree)
+}
+```
+
+
+```{r}
+
+#### tax_clean #### 
+tax_clean <- function(table) {
+
+  tax <- table[,c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")]
+  tax
+  
+  # 2) NA -> ""
+  tax[is.na(tax)] <- ""
+  tax[tax=="__"] <- ""
+  tax[tax=="NA"] <- ""
+  
+  
+  # 3) paste [Unclassified + NA] 
+  tax_clean <- tax
+  for (i in 1:nrow(tax_clean)){
+    if (tax_clean[i,7] != ""){
+      tax_clean$Species[i] <- paste(tax_clean$Genus[i], tax_clean$Species[i], sep = " ")
+    } else if (tax_clean[i,2] == ""){
+      kingdom <- paste(tax_clean[i,1],"Unclassified",  sep = " ")
+      tax_clean[i, 2:7] <- kingdom
+    } else if (tax_clean[i,3] == ""){
+      phylum <- paste( tax_clean[i,2],"Unclassified",  sep = " ")
+      tax_clean[i, 3:7] <- phylum
+    } else if (tax_clean[i,4] == ""){
+      class <- paste( tax_clean[i,3],"Unclassified",  sep = " ")
+      tax_clean[i, 4:7] <- class
+    } else if (tax_clean[i,5] == ""){
+      order <- paste( tax_clean[i,4],"Unclassified",  sep = " ")
+      tax_clean[i, 5:7] <- order
+    } else if (tax_clean[i,6] == ""){
+      family <- paste( tax_clean[i,5],"Unclassified",  sep = " ")
+      tax_clean[i, 6:7] <- family
+    } else if (tax_clean[i,7] == ""){
+      tax_clean$Species[i] <- paste(tax_clean$Genus[i],"Unclassified", sep = " ")
+    }
+  }
+  print(tax_clean)
+
+}
+```
+
+
+```{r}
+
+#### to_phylsoeq #### 
+f4.to_phylsoeq <- function(otu, tax, meta, Tree, filename) {
+  dir.create("../Phyloseq") 
+
+  # metadata 
+  sample_n <-   colnames(otu)
+  META <- meta[sample_n, ]
+  
+  # otu 
+  OTU <- as.matrix(t(otu))
+  
+  # tax 
+  TAX <- as.matrix(tax_clean(tax))
+  
+  Phyloseq <- phyloseq(otu_table(OTU, taxa_are_rows=FALSE),
+                        sample_data(META),
+                        tax_table(TAX),
+                        phy_tree(Tree))
+  
+  print(Phyloseq)
+  
+  set.seed (42) 
+  phy_tree(Phyloseq) <- 
+    root(phy_tree (Phyloseq), sample(taxa_names (Phyloseq), 1), resolve.root = TRUE) 
+  
+  print(paste0("Root : ", is.rooted(phy_tree(Phyloseq)))) 
+
+  saveRDS(Phyloseq, paste0("../Phyloseq/", filename, ".rds") )
+
+}
+```
+
+
+
+```{r}
+
+#### _____________________________ f1.Dada2 _______________________________#### 
+# path_trimm_fastq = "../Cutadapt"
+# maxEE_r = 4
+# f1.Dada2otu <- f1.Dada2(path_trimm_fastq, maxEE_r)
+
+
+#### ____________________________f2.assign ________________________________#### 
+# f1.Dada2
+
+# sequences <- rownames(Table)
+# names(sequences) <- sequences
+
+#### ____________________________ f3.align _______________________________ #### 
+# filename = "tree_24"
+# f1.Dada2Unroot_tree <- f3.align(sequences, filename)
+
+
+#### _________________________f4.to_phylsoeq ______________________________#### 
+# meta <- read_xlsx("../Input/your_metadata.xlsx")
+# rownames(meta) <- meta$SampleID
+# Tree = Unroot_tree
+# otu <- Table.3[,asv_id.2]
+# tax <- Table.3[,tax_id]
+# filename = "phyloseq_24"
+# phyloseq <- f4.to_phylsoeq(otu, tax, meta, Tree, filename)
+
+```

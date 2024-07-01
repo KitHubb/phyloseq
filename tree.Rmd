@@ -1,0 +1,244 @@
+---
+title: "tree"
+author: "kim soyeon"
+date: "2023-04-10"
+output: html_document
+---
+
+```{r}
+library(ggtreeExtra)
+library(ggtree)
+library(treeio)
+library(tidytree)
+library(ggstar)
+library(ggplot2)
+library(ggnewscale)
+library(TDbook)
+library(reshape)
+```
+
+## 예제 데이터 
+
+```{r}
+
+# 예제 트리 데이터
+set.seed(42)
+tr <- rtree(100)
+tr
+
+tr <- read.newick("./ps_tree2.tre")
+ggtree(tr, layout="circular")  + geom_tiplab(size = 1)
+ggsave("./tree_ex_4.png", width = 20, height = 20, dpi = 300)
+
+
+?ggtree
+write.beast(tr, file = "./tr.tree")
+
+
+write.beast(tr, file = "./phyldog.tree")
+# 예제 메타 데이터
+dt = data.frame(id=tr$tip.label,
+                Sample_1=abs(rnorm(100)),
+                Sample_2=abs(rnorm(100)),
+                Sample_3=abs(rnorm(100)),
+                Phylum=c(rep("Phylum_1",33),rep("Phylum_2",20),
+                         rep("Phylum_3",10), rep("Phylum_4",37)))
+dt.melt <- melt(dt)
+head(dt.melt) 
+#    id   Phylum variable     value
+# 1  t5 Phylum_1 Sample_1 1.3664669
+# 2 t33 Phylum_1 Sample_1 0.3942079
+# 3 t49 Phylum_1 Sample_1 0.3163953
+# 4 t73 Phylum_1 Sample_1 0.8490450
+# 5 t29 Phylum_1 Sample_1 1.0064365
+# 6 t76 Phylum_1 Sample_1 2.2754909
+
+ggtree(tr, layout="circular", open.angle=10, )
+ggsave("./tree_ex_1.png", width = 4, height = 4, dpi = 300)
+
+tr %>% class
+ggtree(tr, layout="circular", open.angle=10, ) + 
+  geom_fruit(data=dt.melt, 
+             geom=geom_boxplot,
+             mapping = aes(
+                     y=id,
+                     x=value,
+                     fill=Phylum),
+         size=.2,
+         outlier.size=0.5,
+         outlier.stroke=0.08,
+         outlier.shape=21,
+         axis.params=list(
+                         axis       = "x",
+                         text.size  = 1.8,
+                         hjust      = 1,
+                         vjust      = 0.5,
+                         nbreak     = 3),
+         grid.params=list()) +
+   new_scale_fill() +
+  geom_fruit(data=dt.melt, geom=geom_tile,
+               mapping=aes(y=id,
+                           x = variable,
+                           fill=variable,
+                           alpha = value),
+               color = "grey50", offset = 0.04,size = 0.02)+
+         scale_alpha_continuous(range=c(0, 1),
+                             guide=guide_legend(keywidth = 0.3,
+                                             keyheight = 0.3, order=5))
+ggsave("./tree_ex_2.png", width = 10, height = 10, dpi = 300)
+width = 10, height = 10, dpi = 300
+
+```
+
+
+
+
+```{r}
+
+ps <- readRDS("./ps.rds") 
+ps
+# phyloseq-class experiment-level object
+# otu_table()   OTU Table:         [ 770 taxa and 34 samples ]
+# sample_data() Sample Data:       [ 34 samples by 8 sample variables ]
+# tax_table()   Taxonomy Table:    [ 770 taxa by 7 taxonomic ranks ]
+# phy_tree()    Phylogenetic Tree: [ 770 tips and 768 internal nodes ]
+tree<- phy_tree(ps) 
+tree
+ape::write.tree(tree, "./ps_tree.tree")
+
+ape::write.tree(phy = phy_tree(ps), file = "./ps_tree2.tre")
+
+ps.rel <- transform_sample_counts(ps, function(x) x/sum(x) ) #  770 taxa
+
+ps.rel.bac <- subset_taxa(ps.rel, Kingdom == "Bacteria" & 
+                            Phylum != "Unclassified Bacteria") # 748  taxa
+
+myTaxa = names(sort(taxa_sums(ps.rel.bac), decreasing = TRUE)[1:50])
+ps.50 = prune_taxa(myTaxa, ps.rel.bac)
+# phyloseq-class experiment-level object
+# otu_table()   OTU Table:         [ 50 taxa and 34 samples ]
+# sample_data() Sample Data:       [ 34 samples by 8 sample variables ]
+# tax_table()   Taxonomy Table:    [ 50 taxa by 7 taxonomic ranks ]
+# phy_tree()    Phylogenetic Tree: [ 50 tips and 49 internal nodes ]
+
+
+ggtree(ps.50, layout="circular", open.angle=10, ) +
+  geom_tippoint(mapping=aes(color=Phylum), size=0.5)
+ggsave("./tree_50_1.png", width = 5, height = 3, dpi = 300)
+
+
+ggtree(ps.50, layout="rec", open.angle=10, ) +
+  geom_tippoint(mapping=aes(color=Phylum), size=0.5, show.legend=F)
+ggsave("./tree_50_2.png", width = 8, height = 8, dpi = 300)
+
+
+p <- ggtree(ps.50, layout="circular", open.angle=10, ) +
+  geom_tippoint(mapping=aes(color=Phylum), size=0.5, show.legend=F) +
+  geom_fruit(geom=geom_boxplot,
+             mapping = aes(
+                     y=OTU,
+                     x=Abundance,
+                     fill=Phylum),
+         size=.2,
+         outlier.size=0.5,
+         outlier.stroke=0.08,
+         outlier.shape=21,
+         axis.params=list(
+                         axis       = "x",
+                         text.size  = 1.8,
+                         hjust      = 1,
+                         vjust      = 0.5,
+                         nbreak     = 3),
+         grid.params=list()) 
+
+p
+ggsave("./tree_7_50.png", width = 8, height = 8, dpi = 300)
+
+p2 <- p + new_scale_fill() +
+  geom_fruit(geom=geom_tile,
+             mapping=aes(y=OTU,
+                           x = `body.site`,
+                           fill=`body.site`,
+                           alpha = Abundance),
+             color = "grey30", offset = 0.04, size = 0.02) +
+  scale_alpha_continuous(range=c(0, 1),guide=guide_legend(keywidth = 0.3, keyheight = 0.3, order=5))
+
+ggsave("./tree_8_50.png", width = 8, height = 8, dpi = 300)
+p2 + geom_tiplab(aes(label=Genus), size = 3) 
+ggsave("./tree_8_50_label.png", width = 12, height =12, dpi = 300)
+
+```
+
+
+```{r}
+ggtree(ps.50, layout="rec", open.angle=10, ) +
+  geom_tippoint(mapping=aes(color=Phylum), size=0.5, show.legend=F) +
+  geom_fruit(geom=geom_boxplot,
+             mapping = aes(
+                     y=OTU,
+                     x=Abundance,
+                     fill=Phylum),
+         size=.2,
+         outlier.size=0.5,
+         outlier.stroke=0.08,
+         outlier.shape=21,
+         axis.params=list(
+                         axis       = "x",
+                         text.size  = 1.8,
+                         hjust      = 1,
+                         vjust      = 0.5,
+                         nbreak     = 3),
+         grid.params=list()) +
+  new_scale_fill() +
+  geom_fruit(geom=geom_tile,
+             mapping=aes(y=OTU,
+                           x = `body.site`,
+                           fill=`body.site`,
+                           alpha = Abundance),
+             color = "grey30", offset = 0.04, size = 0.02) +
+  scale_alpha_continuous(range=c(0, 1),guide=guide_legend(keywidth = 0.3, keyheight = 0.3, order=5))
+ggsave("./tree_8_50_rec.png", width = 10, height = 10, dpi = 300)
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+

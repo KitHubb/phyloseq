@@ -1,0 +1,185 @@
+---
+title: "venn diagram"
+author: "kim soyeon"
+date: "2024-04-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+set.seed(20240418)
+ASVs <- paste("ASV",1:100,sep="")
+venn_df <- list(
+  Sample01 = sample(ASVs,50), 
+  Sample02 = sample(ASVs,30), 
+  Sample03 = sample(ASVs,20),
+  Sample04 = sample(ASVs,35),
+  Sample05 = sample(ASVs,15)
+  )
+
+venn_df
+```
+
+```{r}
+library(phyloseq)
+ps <- readRDS("./ps.rds") 
+```
+
+
+```{r}
+
+
+meta <- data.frame(sample_data(ps))
+otu <- data.frame(otu_table(ps))
+table <- merge(meta, t(otu), by = "row.names")
+
+
+gut<- table %>% filter(body.site %in%  "gut") %>% 
+  select(which(colSums(.[10:779]) > 0)) %>% 
+  colnames()
+tongue <- table %>% 
+  filter(body.site == "tongue") %>%
+  select(which(colSums(.[10:779]) > 0)) %>%
+  colnames()
+left.p <- table %>% 
+  filter(body.site == "left palm" ) %>% 
+  select(which(colSums(.[10:779]) > 0)) %>% 
+  colnames()
+right.p <- table %>% 
+  filter(body.site == "right palm") %>% 
+  select(which(colSums(.[10:779]) > 0)) %>% 
+  colnames()
+
+
+
+venn_df = list(`gut` = gut,
+               `tongue` = tongue,
+               `left palm` = left.p,
+               `right palm` = right.p
+                   )
+venn_df
+
+```
+
+## UpSetR
+```{r}
+
+
+install.packages("UpSetR")
+library(UpSetR)
+
+table2 <- table[, c(3, 10:779)]  %>%
+  dplyr::group_by(body.site) %>% 
+  dplyr::summarize_all(sum) %>% 
+  tibble::column_to_rownames("body.site")  %>% 
+  t() 
+
+table3 <- (table2>0) *1 # https://github.com/waldronlab/MicrobiomeWorkshop/blob/master/vignettes/MicrobiomeWorkshop.Rmd
+table3
+p <- upset(data.frame(table3), 
+           sets=colnames(data.frame(table3)),
+           sets.bar.color = "#56B4E9",
+           order.by = "freq",
+           empty.intersections = "on")
+
+p
+png("./venn6.png", width = 10, height = 7, units = "in", res = 300,  type = "cairo",  bg = "transparent")
+p
+dev.off()
+
+```
+
+## library(gplots)
+```{r}
+library(gplots)
+library(dplyr)
+
+
+
+venn1 <- gplots::venn(venn_df)
+venn1
+png("./venn2.png", width = 7, height = 7, units = "in", res = 300,  type = "cairo",  bg = "transparent")
+gplots::venn(venn_df)
+dev.off()
+
+ggsave("./venn4.png", width = 7, height = 7, dpi = 300, 
+       device = png, type = "cairo",  bg = "transparent")
+
+venn1_attr <- attr(venn1, "intersections")
+venn1_attr$`left palm:right palm` %>% head
+
+```
+## VennDiagram::
+```{r}
+
+VennDiagram::venn.diagram(
+        x = venn_df,
+        category.names = c("gut", "tongue", "left palm", "right palm"),
+        filename = './venn_diagram.png', main = "Venn Diagram",
+        output=F,
+        col=c("#440154ff", '#21908dff', '#fde725ff', "#E7298A"),
+        height = 9,
+        width = 11,
+        resolution = 500,
+        units = "in",
+        imagetype = "png",
+        fill = c("#440154ff", '#21908dff', '#fde725ff', "#E7298A"),
+        cex = 2,
+        fontfamily = "sans",
+        cat.cex = 1.5,
+        cat.default.pos = "outer",
+        cat.fontfamily = "sans",
+        cat.col = c("#440154ff", '#21908dff', '#fde725ff', "#E7298A")
+)
+
+
+
+```
+## ggvenn
+```{r}
+library(ggvenn)
+p <- ggvenn(
+  venn_df, 
+  fill_color = c("#0073C2FF", "#EFC000FF", "#868686FF", "#CD534CFF"),
+  stroke_size = 0.5, set_name_size = 4
+  )
+p
+ggsave("./venn4.png", width = 7, height = 7, dpi = 300, 
+       device = png, type = "cairo",  bg = "transparent")
+```
+## ggVennDiagram
+```{r}
+library(ggVennDiagram)
+p <- ggVennDiagram(venn_df, 
+                         label_alpha = 0,
+                         category.names = c("gut", "tongue", "left palm", "right palm"))+
+  scale_fill_gradient(low = "#F4FAFE", high = "#4981BF")
+
+
+p
+ggsave("./venn3.png", width = 7, height = 7, dpi = 300, 
+       device = png, type = "cairo",  bg = "transparent")
+ggsave()
+
+# 빈 pptx만들기 
+read_pptx() %>% 
+  print(target = "./example.pptx")
+
+read_pptx( "./example.pptx")
+# 편집 가능한 이미지로 변환
+editable_graph <- rvg::dml(ggobj = p)
+
+# 그림 저장 
+read_pptx( "./example.pptx") %>%
+  add_slide("Title Slide","Office Theme") %>%
+  ph_with(editable_graph,
+          location = ph_location(left=0, top=0,width = 7, height = 7, bg="transparent")) %>%
+  print(target = "./example.pptx")
+
+
+
+```

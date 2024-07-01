@@ -1,0 +1,124 @@
+---
+title: "2023_05_10_ggtree"
+author: "kim soyeon"
+date: "2023-05-10"
+output: html_document
+---
+
+```{r }
+library(phyloseq)
+library(ggtree)
+library(ggplot2)
+library(ggtreeExtra)
+library(ggtree)
+library(treeio)
+library(tidytree)
+library(ggstar)
+library(ggnewscale)
+library(TDbook)
+library(reshape)
+
+
+ps <- readRDS("./ps.rds") 
+# phyloseq-class experiment-level object
+# otu_table()   OTU Table:         [ 770 taxa and 34 samples ]
+# sample_data() Sample Data:       [ 34 samples by 8 sample variables ]
+# tax_table()   Taxonomy Table:    [ 770 taxa by 7 taxonomic ranks ]
+# phy_tree()    Phylogenetic Tree: [ 770 tips and 768 internal nodes ]
+ps.rel <- transform_sample_counts(ps, function(x) x/sum(x) ) #  770 taxa
+```
+
+```{r}
+
+# 데이터 일부만 추출 
+# 1) kingdom이 Bacteria인 것만 추출 
+ps.rel.bac <- subset_taxa(ps.rel, Kingdom == "Bacteria" & 
+                            Phylum != "Unclassified Bacteria") # 748  taxa
+
+# 2) Abundance가 Top 50 인 ASV만 추출
+myTaxa = names(sort(taxa_sums(ps.rel.bac), decreasing = TRUE)[1:50])
+ps.50 = prune_taxa(myTaxa, ps.rel.bac)
+# phyloseq-class experiment-level object
+# otu_table()   OTU Table:         [ 50 taxa and 34 samples ]
+# sample_data() Sample Data:       [ 34 samples by 8 sample variables ]
+# tax_table()   Taxonomy Table:    [ 50 taxa by 7 taxonomic ranks ]
+# phy_tree()    Phylogenetic Tree: [ 50 tips and 49 internal nodes ]
+```
+
+
+기본적인 계통수를 그려보자. extrenal node의 색은 Phylum별로 구분하였다. 이때 기본적인 OTU단위로 node가 생성된다.
+```{r}
+ggtree(ps.50, layout="circular", open.angle=10, ) +
+  geom_tippoint(mapping=aes(color=Phylum), size=0.5, show.legend=T) # Tip 의 끝부분에 색 표시
+ggsave("./ggtree/ex1.png", dpi = 300)
+```
+```{r}
+p <- ggtree(ps.50, layout="circular", open.angle=10, ) +
+  geom_tippoint(mapping=aes(color=Phylum), size=0.5, show.legend=F) +
+  geom_fruit(geom=geom_boxplot, # 각 OTU의 abundance를 표시하는 bxplot 추가
+             mapping = aes(
+                     y=OTU,  
+                     x=Abundance,
+                     fill=Phylum),
+         size=.2,
+         outlier.size=0.5,
+         outlier.stroke=0.08,
+         outlier.shape=21,
+         axis.params=list(
+                         axis       = "x",
+                         text.size  = 1.8,
+                         hjust      = 1,
+                         vjust      = 0.5,
+                         nbreak     = 3),
+         grid.params=list()) 
+
+p
+ggsave("./ggtree/ex2.png", dpi = 300)
+```
+
+```{r}
+
+p <- ggtree(ps.50, layout="rectangular")+
+  geom_tippoint(mapping=aes(color=Phylum), size=0.5, show.legend=F) +
+  geom_fruit(geom=geom_boxplot, # 각 OTU의 abundance를 표시하는 bxplot 추가
+             mapping = aes(
+                     y=OTU,  
+                     x=Abundance,
+                     fill=Phylum),
+         size=.2,
+         outlier.size=0.5,
+         outlier.stroke=0.08,
+         outlier.shape=21,
+         axis.params=list(
+                         axis       = "x",
+                         text.size  = 1.8,
+                         hjust      = 1,
+                         vjust      = 0.5,
+                         nbreak     = 3),
+         grid.params=list()) 
+
+p
+ggsave("./ggtree/ex3.png", dpi = 300)
+
+
+```
+
+
+```{r}
+
+
+p2 <- p + new_scale_fill() +
+  geom_fruit(geom=geom_tile,
+             mapping=aes(y=OTU,
+                           x = `body.site`,
+                           fill=`body.site`,
+                           alpha = Abundance),
+             color = "grey30", offset = 0.04, size = 0.02) +
+  scale_alpha_continuous(range=c(0, 1),guide=guide_legend(keywidth = 0.3, keyheight = 0.3, order=5))
+  
+p2
+  
+ggsave("./ggtree/ex4.png", dpi = 300)
+
+```
+

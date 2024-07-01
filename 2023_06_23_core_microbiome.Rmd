@@ -1,0 +1,56 @@
+---
+title: "Untitled"
+author: "kim soyeon"
+date: "2023-06-22"
+output: html_document
+---
+
+참고1 : https://microbiome.github.io/tutorials/Core.html
+참고2 : https://mibwurrepo.github.io/Microbial-bioinformatics-introductory-course-Material-2018/core-microbiota.html
+```{r}
+library(phyloseq)
+library(ggplot2)
+library(microbiome)
+library(dplyr)
+library(RColorBrewer)
+
+ps <- readRDS("./ps.rds") 
+# phyloseq-class experiment-level object
+# otu_table()   OTU Table:         [ 770 taxa and 34 samples ]
+# sample_data() Sample Data:       [ 34 samples by 8 sample variables ]
+# tax_table()   Taxonomy Table:    [ 770 taxa by 7 taxonomic ranks ]
+# phy_tree()    Phylogenetic Tree: [ 770 tips and 768 internal nodes ]
+
+ps.rel <- transform_sample_counts(ps, function(x) x/sum(x) )
+
+```
+
+```{r}
+# Relative population frequencies; at 1% compositional abundance threshold:
+Pre <- prevalence(ps.rel, detection = 1/100, sort = TRUE)
+head(Pre)
+  # Absolute population frequencies (sample count):
+head(prevalence(ps.rel, detection = 1/100, sort = TRUE, count = TRUE))
+```
+
+```{r}
+core.taxa.standard <- core_members(ps.rel, detection = 1/100, prevalence = 50/100)
+
+
+pseq.core <- core(ps.rel, detection = 0.1/100, prevalence = 50/100)
+core.members <- core_members(ps.rel, detection = 0, prevalence = 50/100)
+```
+
+
+# Core microbiota analysis
+```{r}
+p.core <- plot_core(ps.rel, 
+                    plot.type = "heatmap", 
+                    colours = rev(brewer.pal(5, "Spectral")),
+                    # prevalences = prevalences, 
+                    # detections = detections, 
+                    min.prevalence = .5) 
+p.core
+
+```
+

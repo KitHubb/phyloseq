@@ -1,0 +1,127 @@
+Group1,Group2,wilcox_p_value,p_adjust,Kruskal-wallus_p_value,taxonomy
+right palm,gut,0.035952283,0.071904566,0.002710595,Bacteroidetes
+right palm,tongue,0.666474702,0.799769642,0.002710595,Bacteroidetes
+right palm,left palm,0.8883587,0.8883587,0.002710595,Bacteroidetes
+gut,tongue,8.23E-05,0.0004662,0.002710595,Bacteroidetes
+gut,left palm,0.0001554,0.0004662,0.002710595,Bacteroidetes
+tongue,left palm,0.199588647,0.29938297,0.002710595,Bacteroidetes
+tongue,left palm,0.276593994,0.331912793,0.000211661,Proteobacteria
+tongue,right palm,0.06252571,0.093788564,0.000211661,Proteobacteria
+tongue,gut,8.23E-05,0.0004662,0.000211661,Proteobacteria
+left palm,right palm,0.480707528,0.480707528,0.000211661,Proteobacteria
+left palm,gut,0.0001554,0.0004662,0.000211661,Proteobacteria
+right palm,gut,0.000329083,0.000658165,0.000211661,Proteobacteria
+left palm,right palm,1,1,0.307584349,Firmicutes
+left palm,gut,0.878477078,1,0.307584349,Firmicutes
+left palm,tongue,0.321266968,0.77301522,0.307584349,Firmicutes
+right palm,gut,0.742986425,1,0.307584349,Firmicutes
+right palm,tongue,0.38650761,0.77301522,0.307584349,Firmicutes
+gut,tongue,0.020649938,0.12389963,0.307584349,Firmicutes
+right palm,left palm,0.96160305,0.96160305,0.000376514,Actinobacteria
+right palm,tongue,0.077235745,0.092682894,0.000376514,Actinobacteria
+right palm,gut,0.014572771,0.021859157,0.000376514,Actinobacteria
+left palm,tongue,0.00370218,0.00740436,0.000376514,Actinobacteria
+left palm,gut,0.000785338,0.002356014,0.000376514,Actinobacteria
+tongue,gut,0.000542915,0.002356014,0.000376514,Actinobacteria
+tongue,left palm,0.113944879,0.135593545,5.39E-05,Fusobacteria
+tongue,right palm,0.001470114,0.002940228,5.39E-05,Fusobacteria
+tongue,gut,0.00047997,0.002045869,5.39E-05,Fusobacteria
+left palm,right palm,0.135593545,0.135593545,5.39E-05,Fusobacteria
+left palm,gut,0.000681956,0.002045869,5.39E-05,Fusobacteria
+right palm,gut,0.009577976,0.014366964,5.39E-05,Fusobacteria
+tongue,right palm,0.089799094,0.13469864,0.002098583,Cyanobacteria
+tongue,left palm,0.014572771,0.029145543,0.002098583,Cyanobacteria
+tongue,gut,0.197582229,0.237098674,0.002098583,Cyanobacteria
+right palm,left palm,0.884953549,0.884953549,0.002098583,Cyanobacteria
+right palm,gut,0.008146728,0.024440185,0.002098583,Cyanobacteria
+left palm,gut,0.000409933,0.002459595,0.002098583,Cyanobacteria
+gut,right palm,0.060172086,0.115864471,0.008525833,Verrucomicrobia
+gut,left palm,0.049632913,0.115864471,0.008525833,Verrucomicrobia
+gut,tongue,0.002847808,0.017086847,0.008525833,Verrucomicrobia
+right palm,left palm,0.857862116,0.857862116,0.008525833,Verrucomicrobia
+right palm,tongue,0.077242981,0.115864471,0.008525833,Verrucomicrobia
+left palm,tongue,0.144216824,0.173060189,0.008525833,Verrucomicrobia
+left palm,right palm,0.17828741,0.17828741,0.001428894,Unclassified Bacteria
+left palm,tongue,0.002847808,0.011423261,0.001428894,Unclassified Bacteria
+left palm,gut,0.004569305,0.011423261,0.001428894,Unclassified Bacteria
+right palm,tongue,0.033860593,0.056338833,0.001428894,Unclassified Bacteria
+right palm,gut,0.045071066,0.056338833,0.001428894,Unclassified Bacteria
+tongue,gut,NA,NA,0.001428894,Unclassified Bacteria
+left palm,right palm,0.772320635,0.772320635,0.315683796,Spirochaetes
+left palm,tongue,0.345778586,0.476967382,0.315683796,Spirochaetes
+left palm,gut,0.381573906,0.476967382,0.315683796,Spirochaetes
+right palm,tongue,0.169327297,0.476967382,0.315683796,Spirochaetes
+right palm,gut,0.197582229,0.476967382,0.315683796,Spirochaetes
+tongue,gut,NA,NA,0.315683796,Spirochaetes
+left palm,right palm,0.931547474,0.931547474,0.553370131,Synergistetes
+left palm,tongue,0.345778586,0.511744358,0.553370131,Synergistetes
+left palm,gut,0.381573906,0.511744358,0.553370131,Synergistetes
+right palm,tongue,0.374062797,0.511744358,0.553370131,Synergistetes
+right palm,gut,0.409395486,0.511744358,0.553370131,Synergistetes
+tongue,gut,NA,NA,0.553370131,Synergistetes
+right palm,left palm,0.676026607,0.676026607,0.114011711,[Thermi]
+right palm,tongue,0.077242981,0.2136294,0.114011711,[Thermi]
+right palm,gut,0.096170539,0.2136294,0.114011711,[Thermi]
+left palm,tongue,0.144216824,0.2136294,0.114011711,[Thermi]
+left palm,gut,0.17090352,0.2136294,0.114011711,[Thermi]
+tongue,gut,NA,NA,0.114011711,[Thermi]
+left palm,right palm,0.219352267,0.365587112,0.063798989,Tenericutes
+left palm,gut,0.07644793,0.191119825,0.063798989,Tenericutes
+left palm,tongue,0.060010719,0.191119825,0.063798989,Tenericutes
+right palm,gut,0.409395486,0.409395486,0.063798989,Tenericutes
+right palm,tongue,0.374062797,0.409395486,0.063798989,Tenericutes
+gut,tongue,NA,NA,0.063798989,Tenericutes
+left palm,right palm,0.426213955,0.426213955,0.223702388,SR1
+left palm,tongue,0.144216824,0.426213955,0.223702388,SR1
+left palm,gut,0.17090352,0.426213955,0.223702388,SR1
+right palm,tongue,0.374062797,0.426213955,0.223702388,SR1
+right palm,gut,0.409395486,0.426213955,0.223702388,SR1
+tongue,gut,NA,NA,0.223702388,SR1
+right palm,gut,0.197582229,0.197582229,0.125843304,Acidobacteria
+right palm,left palm,0.197582229,0.197582229,0.125843304,Acidobacteria
+right palm,tongue,0.169327297,0.197582229,0.125843304,Acidobacteria
+gut,left palm,NA,NA,0.125843304,Acidobacteria
+gut,tongue,NA,NA,0.125843304,Acidobacteria
+left palm,tongue,NA,NA,0.125843304,Acidobacteria
+left palm,right palm,0.931547474,0.931547474,0.553370131,Chloroflexi
+left palm,tongue,0.345778586,0.511744358,0.553370131,Chloroflexi
+left palm,gut,0.381573906,0.511744358,0.553370131,Chloroflexi
+right palm,tongue,0.374062797,0.511744358,0.553370131,Chloroflexi
+right palm,gut,0.409395486,0.511744358,0.553370131,Chloroflexi
+tongue,gut,NA,NA,0.553370131,Chloroflexi
+right palm,gut,0.197582229,0.197582229,0.125843304,Planctomycetes
+right palm,tongue,0.169327297,0.197582229,0.125843304,Planctomycetes
+right palm,left palm,0.197582229,0.197582229,0.125843304,Planctomycetes
+gut,tongue,NA,NA,0.125843304,Planctomycetes
+gut,left palm,NA,NA,0.125843304,Planctomycetes
+tongue,left palm,NA,NA,0.125843304,Planctomycetes
+right palm,left palm,0.197582229,0.197582229,0.125843304,Crenarchaeota
+right palm,gut,0.197582229,0.197582229,0.125843304,Crenarchaeota
+right palm,tongue,0.169327297,0.197582229,0.125843304,Crenarchaeota
+left palm,gut,NA,NA,0.125843304,Crenarchaeota
+left palm,tongue,NA,NA,0.125843304,Crenarchaeota
+gut,tongue,NA,NA,0.125843304,Crenarchaeota
+left palm,right palm,0.174609049,0.291015082,0.055709156,GN02
+left palm,gut,0.07644793,0.191119825,0.055709156,GN02
+left palm,tongue,0.060010719,0.191119825,0.055709156,GN02
+right palm,gut,0.409395486,0.409395486,0.055709156,GN02
+right palm,tongue,0.374062797,0.409395486,0.055709156,GN02
+gut,tongue,NA,NA,0.055709156,GN02
+left palm,gut,0.381573906,0.381573906,0.35466256,FBP
+left palm,tongue,0.345778586,0.381573906,0.35466256,FBP
+left palm,right palm,0.345778586,0.381573906,0.35466256,FBP
+gut,tongue,NA,NA,0.35466256,FBP
+gut,right palm,NA,NA,0.35466256,FBP
+tongue,right palm,NA,NA,0.35466256,FBP
+right palm,gut,0.409395486,0.409395486,0.427171167,Unclassified Unassigned
+right palm,tongue,0.374062797,0.409395486,0.427171167,Unclassified Unassigned
+right palm,left palm,0.409395486,0.409395486,0.427171167,Unclassified Unassigned
+gut,tongue,NA,NA,0.427171167,Unclassified Unassigned
+gut,left palm,NA,NA,0.427171167,Unclassified Unassigned
+tongue,left palm,NA,NA,0.427171167,Unclassified Unassigned
+tongue,left palm,0.409395486,0.409395486,0.427171167,TM7
+tongue,gut,0.409395486,0.409395486,0.427171167,TM7
+tongue,right palm,0.374062797,0.409395486,0.427171167,TM7
+left palm,gut,NA,NA,0.427171167,TM7
+left palm,right palm,NA,NA,0.427171167,TM7
+gut,right palm,NA,NA,0.427171167,TM7

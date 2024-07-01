@@ -1,0 +1,355 @@
+---
+title: "2023-10-16-NCM"
+author: "kim soyeon"
+date: "2023-10-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(phyloseq)
+library(devtools)
+library(tibble)
+library(ape)
+library(vegan)
+library(FSA)
+library(eulerr)
+library(grid)e
+library(gridExtra)
+
+ps <- readRDS("./ps.rds")
+
+ps.g <- subset_samples(ps, body.site %in% c("gut"))
+ps.t <- subset_samples(ps, body.site %in% c("tongue"))
+
+
+```
+
+
+```{r}
+
+# spp = t(otu_table(ps.gt)); pool=NULL; stats=TRUE; taxon= tax_table(ps.gt)
+
+```
+
+
+
+```{r}
+
+#spp: A community table for communities of interest with local communities/samples as rows and taxa as columns. All samples must be rarefied to the same depth.
+#pool: A community table for defining source community (optional; Default=NULL).
+#taxon: A table listing the taxonomic calls for each otu, with OTU ids as row names and taxonomic classifications as columns.
+#If stats=TRUE the function will return fitting statistics.
+#If stats=FALSE the function will return a table of observed and predicted values for each otu.
+
+```
+
+### Import data
+
+```{r, message=FALSE, warning=FALSE}
+phyloseq = ps.g
+meta <- sample_data(phyloseq)
+meta$X.Sample <- rownames(meta)
+sample_data(phyloseq) <- meta
+
+## Check how many reads you have in each of the samples. This will tell you if you need to re-do anything
+# Get read counts and make a new dataframe with this data
+read_count = data.frame("count" = colSums(otu_table(phyloseq))) %>%
+  rownames_to_column(var="X.Sample") %>%
+  inner_join(data.frame(sample_data(phyloseq)), by="X.Sample") %>%
+  arrange(-count) %>%
+  mutate(X.Sample=factor(X.Sample, levels=X.Sample))
+
+# Now plot read count for each sample. The horizontal line represents a 2000 read threshold
+ggplot(data=read_count, aes(x=X.Sample, y=log10(count), fill=body.site)) +
+  geom_bar(stat="identity") +
+  labs(x="Sample", y="Log10(Read count)") +
+  geom_hline(yintercept=log10(10000)) +
+  geom_hline(yintercept=log10(2000)) +
+  theme(text = element_text(size=16),
+        axis.text.x = element_blank())
+
+
+```
+
+
+
+relative abundance rather than readcounts.
+
+```{r, message=FALSE, warning=FALSE}
+# Rarefy to an even depth
+set.seed(42)  # setting seed for reproducibility
+phyloseq.rare = rarefy_even_depth(phyloseq)
+
+# Normalize read counts (this gives relative abundance)
+phyloseq.norm = transform_sample_counts(phyloseq.rare, function(x) x/sum(x))
+
+```
+
+## Testing neutral model fit
+
+Now lets fit the sloan neutral model to our data. I will do this for the entire dataset together (irregardless of land use). This code was adapted from Adam Burns et al. 2016.
+
+Burns, A., Stephens, W., Stagaman, K. et al. Contribution of neutral processes to the assembly of gut microbial communities in the zebrafish over host development. ISME J 10, 655–664 (2016) doi:10.1038/ismej.2015.142
+
+```{r, message=FALSE, warning=FALSE}
+
+# Extract the OTU table from pthe phyloseq object
+OTU.table = t(otu_table(phyloseq.rare))
+
+# Calculate the number of individuals in the meta community (Average read depth)
+N <- mean(apply(OTU.table, 1, sum))
+
+# Calculate the average relative abundance of each taxa across communities
+p.m <- apply(OTU.table, 2, mean)
+p.m <- p.m[p.m != 0]
+p <- p.m/N
+p.df = data.frame(p) %>%
+  rownames_to_column(var="OTU")
+
+# Calculate the occurrence frequency of each taxa
+OTU.table.bi <- 1*(OTU.table>0)
+freq.table <- apply(OTU.table.bi, 2, mean)
+freq.table <- freq.table[freq.table != 0]
+freq.df = data.frame(OTU=names(freq.table), freq=freq.table)
+
+#Combine
+C <- inner_join(p.df,freq.df, by="OTU") %>%
+  arrange(p)
+# Remove rows with any zero (absent in either source pool or local communities). You already did this, but just to make sure we will do it again.
+C.no0 <- C %>%
+  filter(freq != 0, p != 0)
+
+#Calculate the limit of detection
+d <- 1/N
+
+##Fit model parameter m (or Nm) using Non-linear least squares (NLS)
+p.list <- C.no0$p
+freq.list <- C.no0$freq
+m.fit <- nlsLM(freq.list ~ pbeta(d, N*m*p.list, N*m*(1-p.list), lower.tail=FALSE), start=list(m=0.1))
+m.ci <- confint(m.fit, 'm', level=0.95)
+m.sum <- summary(m.fit)
+m.coef = coef(m.fit)
+
+freq.pred <- pbeta(d, N*coef(m.fit)*p.list, N*coef(m.fit)*(1-p.list), lower.tail=FALSE)
+Rsqr <- 1 - (sum((freq.list - freq.pred)^2))/(sum((freq.list - mean(freq.list))^2))
+
+# Get table of model fit stats
+fitstats <- data.frame(m=m.coef, m.low.ci=m.ci[1], m.up.ci=m.ci[2], 
+                       Rsqr=Rsqr, p.value=m.sum$parameters[4], N=N, 
+                       Samples=nrow(OTU.table), Richness=length(p.list), 
+                       Detect=d)
+
+# Get confidence interval for predictions
+freq.pred.ci <- binconf(freq.pred*nrow(OTU.table), nrow(OTU.table), alpha=0.05, method="wilson", return.df=TRUE)
+
+# Get table of predictions
+pred.df <- data.frame(metacomm_RA=p.list, frequency=freq.pred, 
+                      frequency_lowerCI=freq.pred.ci[,2], 
+                      frequency_upperCI=freq.pred.ci[,3]) %>%
+  unique()
+
+# Get table of observed occupancy and abundance
+obs.df = C.no0 %>%
+  rename(metacomm_RA = p, frequency=freq)
+
+obs.df <-  obs.df %>%
+  left_join(pred.df, by = "metacomm_RA") %>%
+  mutate(New_Column = case_when(
+    frequency.x >= frequency_lowerCI & frequency.x <= frequency_upperCI ~ "fit",
+    frequency.x > frequency_upperCI ~ "upper",
+    frequency.x < frequency_lowerCI ~ "lower",
+    TRUE ~ "NA"
+  )) %>%
+  select(-frequency.y, -frequency_lowerCI, -frequency_upperCI)
+
+colnames(obs.df)[3] <- "frequency"
+
+
+
+```
+
+Plot the model and observed occupancy and metacommunity abundance values. 
+
+```{r}  
+
+fulldata.model.plot = 
+  ggplot(data=obs.df) +
+    geom_point(data=obs.df, aes(x=log10(metacomm_RA), y=frequency, color = New_Column), 
+               alpha=.2, size=2) +
+    geom_line(data=pred.df, aes(x=log10(metacomm_RA), y=frequency), color="black") + 
+    geom_line(data=pred.df, aes(x=log10(metacomm_RA), y=frequency_lowerCI), linetype=2, color="black") + 
+    geom_line(data=pred.df, aes(x=log10(metacomm_RA), y=frequency_upperCI), linetype=2, color="black") + 
+    geom_text(data=fitstats, aes(label = paste("R^2 == ", round(Rsqr, 3))), 
+              x=-3.8, y=0.95, size=4, parse=TRUE) +
+    geom_text(data=fitstats, aes(label = paste("italic(m) ==", round(m, 3))), 
+              x=-3.8, y=0.85, size=4, parse=TRUE) + 
+    labs(x="Log10 abundance in\nmetacommunity", y="Frequency detected") +
+    theme_bw() +
+    theme(axis.line = element_line(color="black"),
+          legend.position = "none",
+          axis.title = element_text(size=14),
+          axis.text = element_text(size=12))
+
+fulldata.model.plot
+
+ggsave("region_neutral_model.png", plot=fulldata.model.plot, device="png",
+      path="./",
+      width=10, height=10, units="cm")
+```
+	
+	
+	
+```{r}
+
+
+Check_read <- function(phyloseq){
+  meta <- sample_data(phyloseq)
+  meta$SampleID <- rownames(meta)
+  sample_data(phyloseq) <- meta
+  
+  ## Check how many reads you have in each of the samples. This will tell you if you need to re-do anything
+  # Get read counts and make a new dataframe with this data
+  read_count = data.frame("count" = colSums(otu_table(phyloseq))) %>%
+    rownames_to_column(var="SampleID") %>%
+    inner_join(data.frame(sample_data(phyloseq)), by="SampleID") %>%
+    arrange(-count) %>%
+    mutate(SampleID=factor(SampleID, levels=SampleID))
+  
+  print(read_count)
+  # Now plot read count for each sample. The horizontal line represents a 2000 read threshold
+  ggplot(data=read_count, aes(x=SampleID, y=log10(count), fill=body.site)) +
+    geom_bar(stat="identity") +
+    labs(x="Sample", y="Log10(Read count)") +
+    geom_hline(yintercept=log10(10000)) +
+    geom_hline(yintercept=log10(2000)) +
+    theme(text = element_text(size=16),
+          axis.text.x = element_blank())
+  
+
+  
+}
+  
+NCM_fit <- function(phyloseq, rarefy = "min"){
+  
+  if (rarefy == "min") {
+    # Rarefy to an even depth
+    set.seed(42)  # setting seed for reproducibility
+    phyloseq.rare = rarefy_even_depth(phyloseq)
+    } else {
+      phyloseq.rare = phyloseq
+      }
+  # Normalize read counts (this gives relative abundance)
+  phyloseq.norm = transform_sample_counts(phyloseq.rare, function(x) x/sum(x))
+  
+  
+  # Extract the OTU table from pthe phyloseq object
+  OTU.table = t(otu_table(phyloseq.rare))
+  
+  # Calculate the number of individuals in the meta community (Average read depth)
+  N <- mean(apply(OTU.table, 1, sum))
+  
+  # Calculate the average relative abundance of each taxa across communities
+  p.m <- apply(OTU.table, 2, mean)
+  p.m <- p.m[p.m != 0]
+  p <- p.m/N
+  p.df = data.frame(p) %>%
+    rownames_to_column(var="OTU")
+  
+  # Calculate the occurrence frequency of each taxa
+  OTU.table.bi <- 1*(OTU.table>0)
+  freq.table <- apply(OTU.table.bi, 2, mean)
+  freq.table <- freq.table[freq.table != 0]
+  freq.df = data.frame(OTU=names(freq.table), freq=freq.table)
+  
+  #Combine
+  C <- inner_join(p.df,freq.df, by="OTU") %>%
+    arrange(p)
+  # Remove rows with any zero (absent in either source pool or local communities). You already did this, but just to make sure we will do it again.
+  C.no0 <- C %>%
+    filter(freq != 0, p != 0)
+  
+  #Calculate the limit of detection
+  d <- 1/N
+  
+  ##Fit model parameter m (or Nm) using Non-linear least squares (NLS)
+  p.list <- C.no0$p
+  freq.list <- C.no0$freq
+  m.fit <- nlsLM(freq.list ~ pbeta(d, N*m*p.list, N*m*(1-p.list), lower.tail=FALSE), start=list(m=0.1))
+  m.ci <- confint(m.fit, 'm', level=0.95)
+  m.sum <- summary(m.fit)
+  m.coef = coef(m.fit)
+  
+  freq.pred <- pbeta(d, N*coef(m.fit)*p.list, N*coef(m.fit)*(1-p.list), lower.tail=FALSE)
+  Rsqr <- 1 - (sum((freq.list - freq.pred)^2))/(sum((freq.list - mean(freq.list))^2))
+  
+  # Get table of model fit stats
+  fitstats <- data.frame(m=m.coef, m.low.ci=m.ci[1], m.up.ci=m.ci[2], 
+                         Rsqr=Rsqr, p.value=m.sum$parameters[4], N=N, 
+                         Samples=nrow(OTU.table), Richness=length(p.list), 
+                         Detect=d)
+  
+  # Get confidence interval for predictions
+  freq.pred.ci <- binconf(freq.pred*nrow(OTU.table), nrow(OTU.table), alpha=0.05, method="wilson", return.df=TRUE)
+  
+  # Get table of predictions
+  pred.df <- data.frame(metacomm_RA=p.list, frequency=freq.pred, 
+                        frequency_lowerCI=freq.pred.ci[,2], 
+                        frequency_upperCI=freq.pred.ci[,3]) %>%
+    unique()
+  
+  # Get table of observed occupancy and abundance
+  obs.df = C.no0 %>%
+    rename(metacomm_RA = p, frequency=freq)
+  
+  obs.df <-  obs.df %>%
+    left_join(pred.df, by = "metacomm_RA") %>%
+    mutate(New_Column = case_when(
+      frequency.x >= frequency_lowerCI & frequency.x <= frequency_upperCI ~ "fit",
+      frequency.x > frequency_upperCI ~ "upper",
+      frequency.x < frequency_lowerCI ~ "lower",
+      TRUE ~ "NA"
+    )) %>%
+    select(-frequency.y, -frequency_lowerCI, -frequency_upperCI)
+  
+  colnames(obs.df)[3] <- "frequency"
+  
+  
+  
+  fulldata.model.plot = 
+    ggplot(data=obs.df) +
+      geom_point(data=obs.df, aes(x=log10(metacomm_RA), y=frequency, color = New_Column), size=2, alpha = 0.8) +
+      geom_line(data=pred.df, aes(x=log10(metacomm_RA), y=frequency), color="black") + 
+      geom_line(data=pred.df, aes(x=log10(metacomm_RA), y=frequency_lowerCI), linetype=2, color="black") + 
+      geom_line(data=pred.df, aes(x=log10(metacomm_RA), y=frequency_upperCI), linetype=2, color="black") + 
+      geom_text(data=fitstats, aes(label = paste("R^2 == ", round(Rsqr, 3))), 
+                x=-3.8, y=0.95, size=4, parse=TRUE) +
+      geom_text(data=fitstats, aes(label = paste("italic(m) ==", round(m, 3))), 
+                x=-3.8, y=0.85, size=4, parse=TRUE) + 
+      labs(x="Log10 abundance in\nmetacommunity", y="Frequency detected") +
+      theme_bw() +
+      theme(axis.line = element_line(color="black"),
+            legend.position = "none",
+            axis.title = element_text(size=14),
+            axis.text = element_text(size=12))
+  
+  return(fulldata.model.plot)
+
+}
+
+
+
+```
+
+```{r}
+Check_read(ps.g)
+p.gut <- NCM_fit(ps.g)
+
+Check_read(ps.t)
+p.tng <- NCM_fit(ps.t)
+
+```

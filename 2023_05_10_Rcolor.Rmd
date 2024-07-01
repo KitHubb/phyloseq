@@ -1,0 +1,37 @@
+---
+title: "Rcolor"
+author: "kim soyeon"
+date: "2023-05-10"
+output: html_document
+---
+
+```{r}
+
+library(corrplot)
+# corrplot 패키지: https://cran.r-project.org/web/packages/corrplot/vignettes/corrplot-intro.html
+M = cor(mtcars)
+
+
+# 1. colorRampPalette 이용 
+redToblue <- colorRampPalette(c("red","white", "blue"))(50)
+corrplot(M, method="circle", 
+         type = "upper", 
+         tl.col="black", tl.cex=0.6,  
+         insig = 'label_sig', 
+         pch.cex = 0.9, 
+         pch.col = 'White',
+         col = rev(redToblue))
+
+
+# 2. RColorBrewer 이용 
+library(RColorBrewer)
+corrplot(M, method="circle", 
+         type = "upper", 
+         tl.col="black", tl.cex=0.6,  
+         insig = 'label_sig', 
+         pch.cex = 0.9, 
+         pch.col = 'White',
+         col = rev(COL2('RdYlBu', 10)))
+
+
+```
